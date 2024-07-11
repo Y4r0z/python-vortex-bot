@@ -22,7 +22,7 @@ Preferences : PreferencesStructure = {}
 
 preferences_dir = 'preferences'
 preferences_file = 'ids.json'
-path = f'{preferences_dir}/{preferences_file}'
+path = os.path.join(preferences_dir, preferences_file)
 pathlib.Path(preferences_dir).mkdir(parents=True, exist_ok=True)
 if pathlib.Path(path).is_file():
     with open(path, 'r') as f:
