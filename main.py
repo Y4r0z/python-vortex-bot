@@ -4,7 +4,7 @@ from discord.ext import commands
 from ui.steam_link import LinkView
 import lib.vortex_api as Vortex
 from ui.setup import SetupView
-from ui.balance import SendWallet
+from ui.balance import SendWallet, PayWarnView, BalanceShareView
 
 def hasRole(member: discord.Member, role_id: int):
     for role in member.roles:
@@ -91,14 +91,17 @@ def main():
     @bot.tree.command(name='link', description='Привязать ваш Steam аккаунт к Discord')
     async def linkcommand(interaction: discord.Interaction):
         view = LinkView()
-        await interaction.response.send_message(content='Нажмите, чтобы привязать ваш Steam аккаунт.', view=view, ephemeral=True)
+        await interaction.response.send_message(
+            content='Нажмите, чтобы привязать ваш Steam аккаунт.', 
+            view=view, 
+            ephemeral=True)
     
     @bot.tree.command(name='balance', description='Показывает, сколько коинов у вас на счету')
     async def balance(interaction: discord.Interaction):
         user = await tryGetUser(interaction)
         if user is None: return
         balance = await Vortex.GetBalance(user['steamId'])
-        await interaction.response.send_message(content=f'Ваш баланс: {balance['value']}', ephemeral=True)
+        await interaction.response.send_message(content=f'Ваш баланс: {balance['value']}', ephemeral=True, view=BalanceShareView(user=interaction.user, value=balance['value']))
     
     @bot.tree.command(name='pay', description='Передать коины другому пользователю')
     @discord.app_commands.describe(target="Пользователь, которому вы передаете коины", value="Сколько коинов передать")
@@ -106,21 +109,25 @@ def main():
         if target.id == interaction.user.id:
             await interaction.response.send_message(content='Мы не можете передавать коины самому себе!', ephemeral=True)
             return
+        if target.bot:
+            await interaction.response.send_message(content='У бота нет кошелька! 😒', ephemeral=True)
+            return
         user = await tryGetUser(interaction)
         if user is None: return
         try:
             user2 = await Vortex.GetDiscordUser(target.id)
         except:
-            await interaction.response.send_message(content=f'Пользователь {target.mention} еще не связал свой аккаунт.', ephemeral=True)
+            await interaction.ressponse.send_message(content=f'Пользователь {target.mention} еще не связал свой аккаунт.', ephemeral=True)
             return
         balance = await Vortex.GetBalance(user['steamId'])
         if value > balance['value']: interaction.response.send_message(content='У вас не хватет коинов для передачи.', ephemeral=True)
         try:
             transaction = await Vortex.PayBalance(user['steamId'], user2['user']['steamId'], value)
         except: interaction.response.send_message(content='Не удалось передать коины.', ephemeral=True)
+        view = PayWarnView(source=interaction.user, target=target, value=value)
         await interaction.response.send_message(
             content=f'Вы передали коины в количестве {value} ед. игроку {target.mention}.\nОстаток на балансе: {transaction["source"]["value"]}', 
-            ephemeral=True)
+            ephemeral=True, view=view)
     
     @bot.tree.command(name='wallet', description='Отобразить информацию о вашем кошельке')
     async def wallet(interaction: discord.Interaction):

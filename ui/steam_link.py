@@ -1,6 +1,6 @@
 import discord
 from lib.steam_api import GetPlayerSummaries, PlayerSummary
-from lib.vortex_api import GetDiscordUser, LinkUser
+from lib.vortex_api import GetDiscordUser, LinkUser, GetDiscordUserSteam
 
 
 def embedFromSteam(summary : PlayerSummary, title: str) -> discord.Embed:
@@ -37,6 +37,12 @@ class LinkModal(discord.ui.Modal, title='Интеграция со Steam'):
     
     async def on_submit(self, interaction: discord.Interaction):
         summary = await GetPlayerSummaries(steam_id=self.steamid.value)
+        try:
+            await GetDiscordUserSteam(self.steamid.value)
+            await interaction.response.send_message('Это пользователь уже связал свой аккаунт! 👀', ephemeral=True)
+            return
+        except:
+            pass
         view = AcceptLinkView(steam=summary)
         await interaction.response.send_message(view=view, embed=embedFromSteam(summary, 'Подтвердите, что это ваш аккаунт'), ephemeral=True)
 
@@ -47,10 +53,9 @@ class LinkView(discord.ui.View):
     @discord.ui.button(label="Привязать Steam", style=discord.ButtonStyle.blurple)
     async def link(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            user = await GetDiscordUser(interaction.user.id)
-            if user is not None: 
-                await interaction.response.send_message('Вы уже привязали свой аккаунт', ephemeral=True)
-                return
+            await GetDiscordUser(interaction.user.id)
+            await interaction.response.send_message('Вы уже привязали свой аккаунт', ephemeral=True)
+            return          
         except:
             pass
         link_modal = LinkModal()

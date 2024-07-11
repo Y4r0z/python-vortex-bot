@@ -85,6 +85,9 @@ async def LinkUser(steam_id: str, discord_id: str | int) -> SteamLink:
 async def GetDiscordUser(discord_id: str | int) -> SteamLink:
     return await _Get(f'{host}/discord?&discord_id={discord_id}')
 
+async def GetDiscordUserSteam(steam_id: str) -> SteamLink:
+    return await _Get(f'{host}/discord/steam?steam_id={steam_id}')
+
 async def SetUserPrivilege(steam_id: str, privilege_id: int):
     return await _Post(f'{host}/privilege?steam_id={steam_id}&privilege_id={privilege_id}&until={BoostyPrivilegeUntil}')
         

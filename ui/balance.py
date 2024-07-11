@@ -32,3 +32,26 @@ class WalletView(discord.ui.View):
     @discord.ui.button(label='Обновить', style=discord.ButtonStyle.blurple)
     async def update(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(embed=(await _GetWalletEmbed(interaction)))
+
+
+
+class PayWarnView(discord.ui.View):
+    def __init__(self, source: discord.Member | discord.User, target: discord.Member | discord.User, value: int, *, timeout: float | None = 180):
+        super().__init__(timeout=timeout)
+        self.source = source
+        self.target = target
+        self.value = value
+    
+    @discord.ui.button(label='Поделится', style=discord.ButtonStyle.blurple)
+    async def warn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(content=f'{self.source.mention} передвал {self.target.mention} коины в количестве {self.value:,} ед.')
+
+class BalanceShareView(discord.ui.View):
+    def __init__(self, user: discord.Member | discord.User, value: int, *, timeout: float | None = 180):
+        super().__init__(timeout=timeout)
+        self.user = user
+        self.value = value
+    
+    @discord.ui.button(label='Поделится', style=discord.ButtonStyle.blurple)
+    async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(f'Баланс игрока {self.user.mention}: {self.value:,}')
