@@ -4,7 +4,7 @@ from settings import Preferences, SavePreferences, IsSetUp
 class SetupView(discord.ui.View):
     @discord.ui.select(
         cls=discord.ui.RoleSelect,
-        placeholder="Роль VIP",
+        placeholder="Роль VIP"
     )
     async def select_vip(self, interaction: discord.Interaction, select_item: discord.ui.RoleSelect):
         role = select_item.values[0]

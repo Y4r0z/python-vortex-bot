@@ -1,0 +1,8 @@
+version: '3.4'
+
+services:
+  pythonvortexbot:
+    image: pythonvortexbot
+    build:
+      context: .
+      dockerfile: ./Dockerfile
