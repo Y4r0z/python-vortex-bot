@@ -5,6 +5,7 @@ from ui.steam_link import LinkView
 import lib.vortex_api as Vortex
 from ui.setup import SetupView
 from ui.balance import SendWallet, PayWarnView, BalanceShareView
+from tools.text import formatCoins
 
 def hasRole(member: discord.Member, role_id: int):
     for role in member.roles:
@@ -101,7 +102,7 @@ def main():
         user = await tryGetUser(interaction)
         if user is None: return
         balance = await Vortex.GetBalance(user['steamId'])
-        await interaction.response.send_message(content=f'Ваш баланс: {balance['value']:,}', ephemeral=True, view=BalanceShareView(user=interaction.user, value=balance['value']))
+        await interaction.response.send_message(content=f'Ваш баланс: {formatCoins(balance['value'])}', ephemeral=True, view=BalanceShareView(user=interaction.user, value=balance['value']))
     
     @bot.tree.command(name='pay', description='Передать коины другому пользователю')
     @discord.app_commands.describe(target="Пользователь, которому вы передаете коины", value="Сколько коинов передать")
@@ -126,7 +127,7 @@ def main():
         except: interaction.response.send_message(content='Не удалось передать коины.', ephemeral=True)
         view = PayWarnView(source=interaction.user, target=target, value=value)
         await interaction.response.send_message(
-            content=f'Вы передали коины в количестве {value} ед. игроку {target.mention}.\nОстаток на балансе: {transaction["source"]["value"]}', 
+            content=f'Вы передали {formatCoins(value)} игроку {target.mention}.\nОстаток на балансе: {formatCoins(transaction["source"]["value"])}', 
             ephemeral=True, view=view)
     
     @bot.tree.command(name='wallet', description='Отобразить информацию о вашем кошельке')

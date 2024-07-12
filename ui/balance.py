@@ -1,7 +1,7 @@
 import discord
 import lib.steam_api as Steam
 import lib.vortex_api as Vortex
-
+from tools.text import formatCoins
 
 async def _tryGetUser(interaction: discord.Interaction) -> Vortex.User | None:
     try:
@@ -19,7 +19,7 @@ async def _GetWalletEmbed(interaction: discord.Interaction) -> discord.Embed:
     balance = await Vortex.GetBalance(user['steamId'])
     privileges = await Vortex.GetUserPrivileges(user['steamId'])
     privlegesNames = '\n'.join([i['privilege']['name'].capitalize() for i in privileges])
-    embed = discord.Embed(color=discord.Color.blurple(), title='Ваш кошелек', description=f'Ваш баланс (коины): {balance["value"]:,}')
+    embed = discord.Embed(color=discord.Color.blurple(), title='Ваш кошелек', description=f'Ваш баланс: {formatCoins(balance["value"])}')
     embed.set_author(name=summary['personaname'], url=summary['profileurl'], icon_url=summary['avatar'])
     embed.add_field(name='Ваши привелегии:', value=privlegesNames)
     return embed
@@ -42,10 +42,10 @@ class PayWarnView(discord.ui.View):
         self.target = target
         self.value = value
     
-    @discord.ui.button(label='Поделится', style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
     async def warn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(view=None)
-        await interaction.channel.send(f'{self.source.mention} передал {self.target.mention} коины в количестве {self.value:,} ед.', silent=True)
+        await interaction.channel.send(f'{self.source.mention} передал {self.target.mention} {formatCoins(self.value)}', silent=True)
 
 class BalanceShareView(discord.ui.View):
     def __init__(self, user: discord.Member | discord.User, value: int, *, timeout: float | None = 180):
@@ -53,7 +53,7 @@ class BalanceShareView(discord.ui.View):
         self.user = user
         self.value = value
     
-    @discord.ui.button(label='Поделится', style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
     async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(view=None)
-        await interaction.channel.send(f'Баланс игрока {self.user.mention}: {self.value:,}', silent=True)
+        await interaction.channel.send(f'Баланс игрока {self.user.mention}: {formatCoins(self.value)}', silent=True)
