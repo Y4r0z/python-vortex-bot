@@ -119,7 +119,7 @@ def main():
         try:
             user2 = await Vortex.GetDiscordUser(target.id)
         except:
-            await interaction.ressponse.send_message(content=f'Пользователь {target.mention} еще не связал свой аккаунт.', ephemeral=True)
+            await interaction.response.send_message(content=f'Пользователь {target.mention} еще не связал свой аккаунт.', ephemeral=True)
             return
         balance = await Vortex.GetBalance(user['steamId'])
         if value > balance['value']: interaction.response.send_message(content='У вас не хватет коинов для передачи.', ephemeral=True)
