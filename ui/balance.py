@@ -37,8 +37,9 @@ class WalletView(discord.ui.View):
     
     @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
     async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(embed=(await _GetWalletEmbed(interaction)))
-        await interaction.channel.send(f'Информация об аккаунте {interaction.user.mention}', embed=(await _GetWalletEmbed(interaction)), silent=True)
+        embed = await _GetWalletEmbed(interaction)
+        await interaction.response.edit_message(embed=embed)
+        await interaction.channel.send(f'Информация об аккаунте {interaction.user.mention}', embed=embed, silent=True)
 
 
 
