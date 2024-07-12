@@ -101,7 +101,7 @@ def main():
         user = await tryGetUser(interaction)
         if user is None: return
         balance = await Vortex.GetBalance(user['steamId'])
-        await interaction.response.send_message(content=f'Ваш баланс: {balance['value']}', ephemeral=True, view=BalanceShareView(user=interaction.user, value=balance['value']))
+        await interaction.response.send_message(content=f'Ваш баланс: {balance['value']:,}', ephemeral=True, view=BalanceShareView(user=interaction.user, value=balance['value']))
     
     @bot.tree.command(name='pay', description='Передать коины другому пользователю')
     @discord.app_commands.describe(target="Пользователь, которому вы передаете коины", value="Сколько коинов передать")

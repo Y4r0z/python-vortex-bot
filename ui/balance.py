@@ -44,7 +44,8 @@ class PayWarnView(discord.ui.View):
     
     @discord.ui.button(label='Поделится', style=discord.ButtonStyle.blurple)
     async def warn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(content=f'{self.source.mention} передвал {self.target.mention} коины в количестве {self.value:,} ед.')
+        await interaction.response.edit_message(view=None)
+        await interaction.channel.send(f'{self.source.mention} передал {self.target.mention} коины в количестве {self.value:,} ед.', silent=True)
 
 class BalanceShareView(discord.ui.View):
     def __init__(self, user: discord.Member | discord.User, value: int, *, timeout: float | None = 180):
@@ -54,4 +55,5 @@ class BalanceShareView(discord.ui.View):
     
     @discord.ui.button(label='Поделится', style=discord.ButtonStyle.blurple)
     async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(f'Баланс игрока {self.user.mention}: {self.value:,}')
+        await interaction.response.edit_message(view=None)
+        await interaction.channel.send(f'Баланс игрока {self.user.mention}: {self.value:,}', silent=True)
