@@ -106,6 +106,7 @@ def main():
     
     @bot.tree.command(name='pay', description='Передать коины другому пользователю')
     @discord.app_commands.describe(target="Пользователь, которому вы передаете коины", value="Сколько коинов передать")
+    @discord.app_commands.rename(target='кому', value='сколько')
     async def balance(interaction: discord.Interaction, target: discord.Member, value: int):
         if target.id == interaction.user.id:
             await interaction.response.send_message(content='Мы не можете передавать коины самому себе!', ephemeral=True)
@@ -130,8 +131,8 @@ def main():
             content=f'Вы передали {formatCoins(value)} игроку {target.mention}.\nОстаток на балансе: {formatCoins(transaction["source"]["value"])}', 
             ephemeral=True, view=view)
     
-    @bot.tree.command(name='wallet', description='Отобразить информацию о вашем кошельке')
-    async def wallet(interaction: discord.Interaction):
+    @bot.tree.command(name='status', description='Отобразить информацию о вашем аккаунте')
+    async def status(interaction: discord.Interaction):
         await SendWallet(interaction)
 
     bot.run(settings.DISCORD_TOKEN)

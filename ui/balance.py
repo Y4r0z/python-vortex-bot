@@ -17,9 +17,9 @@ async def _GetWalletEmbed(interaction: discord.Interaction) -> discord.Embed:
     if user is None: return
     summary = await Steam.GetPlayerSummaries(user['steamId'])
     balance = await Vortex.GetBalance(user['steamId'])
-    privileges = await Vortex.GetUserPrivileges(user['steamId'])
-    privlegesNames = '\n'.join([i['privilege']['name'].capitalize() for i in privileges])
-    embed = discord.Embed(color=discord.Color.blurple(), title='Ваш кошелек', description=f'Ваш баланс: {formatCoins(balance["value"])}')
+    privileges = await Vortex.GetPrivilegeSet(user['steamId'])
+    privlegesNames = Vortex.PrivilegeSetToString(privileges)
+    embed = discord.Embed(color=discord.Color.blurple(), title='Информация об аккаунте', description=f'Ваш баланс: {formatCoins(balance["value"])}')
     embed.set_author(name=summary['personaname'], url=summary['profileurl'], icon_url=summary['avatar'])
     embed.add_field(name='Ваши привелегии:', value=privlegesNames)
     return embed

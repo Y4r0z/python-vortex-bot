@@ -53,6 +53,32 @@ class DuplexTransaction(TypedDict):
     value: int
     description: str
 
+class PrivilegeSet(TypedDict):
+    owner: bool
+    admin: bool
+    moderator: bool
+    soundpad: bool
+    mediaPlayer: bool
+    vip: bool
+    premium: bool
+    legend: bool
+    customPrefix: str
+    welcomePhrase: str
+
+def PrivilegeSetToString(ps: PrivilegeSet):
+    lst = []
+    if ps['owner']: lst.append('Владелец (owner)')
+    if ps['admin']: lst.append('Администратор (admin)')
+    if ps['moderator']: lst.append('Модератор (moderator)')
+    if ps['soundpad']: lst.append('Доступ к саундпаду (soundpad)')
+    if ps['mediaPlayer']: lst.append('Доступ к проигрывателю (mediaPlayer)')
+    if ps['vip']: lst.append('VIP')
+    if ps['premium']: lst.append('Premium')
+    if ps['legend']: lst.append('Legend')
+    if len(ps['customPrefix']) > 0: lst.append(f'Префикс в чате: [{ps['customPrefix']}]')
+    if len(ps['welcomePhrase']) > 0: lst.append(f'Привественная фраза: {ps['welcomePhrase']}')
+    return '\n'.join(lst)
+
 BoostyPrivilegeUntil = '2050-01-01T00:00:00'
 
 async def _Get(href: str):
@@ -106,3 +132,5 @@ async def AddBalance(steam_id: str, value: int):
 async def PayBalance(source_id: str, target_id: str, value: int) -> DuplexTransaction:
     return await _Post(f'{host}/balance/pay?source_steam_id={source_id}&target_steam_id={target_id}&value={value}')
 
+async def GetPrivilegeSet(steam_id: str) -> PrivilegeSet:
+    return await _Get(f'{host}/privilege?steam_id={steam_id}')
