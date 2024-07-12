@@ -2,6 +2,7 @@ import discord
 import lib.steam_api as Steam
 import lib.vortex_api as Vortex
 from tools.text import formatCoins
+import datetime
 
 async def _tryGetUser(interaction: discord.Interaction) -> Vortex.User | None:
     try:
@@ -19,9 +20,10 @@ async def _GetWalletEmbed(interaction: discord.Interaction) -> discord.Embed:
     balance = await Vortex.GetBalance(user['steamId'])
     privileges = await Vortex.GetPrivilegeSet(user['steamId'])
     privlegesNames = Vortex.PrivilegeSetToString(privileges)
-    embed = discord.Embed(color=discord.Color.blurple(), title='Информация об аккаунте', description=f'Ваш баланс: {formatCoins(balance["value"])}')
+    embed = discord.Embed(color=discord.Color.blurple(), title='Информация об аккаунте', description=f'Баланс: {formatCoins(balance["value"])}')
     embed.set_author(name=summary['personaname'], url=summary['profileurl'], icon_url=summary['avatar'])
-    embed.add_field(name='Ваши привелегии:', value=privlegesNames)
+    embed.add_field(name='Привелегии:', value=privlegesNames)
+    embed.set_footer(text=f'{datetime.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}')
     return embed
 
 
@@ -32,6 +34,11 @@ class WalletView(discord.ui.View):
     @discord.ui.button(label='Обновить', style=discord.ButtonStyle.blurple)
     async def update(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(embed=(await _GetWalletEmbed(interaction)))
+    
+    @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
+    async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=(await _GetWalletEmbed(interaction)))
+        await interaction.channel.send(f'Информация об аккаунте {interaction.user.mention}', embed=(await _GetWalletEmbed(interaction)), silent=True)
 
 
 
