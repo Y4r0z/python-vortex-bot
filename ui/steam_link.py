@@ -60,3 +60,4 @@ class LinkView(discord.ui.View):
             pass
         link_modal = LinkModal()
         await interaction.response.send_modal(link_modal)
+    

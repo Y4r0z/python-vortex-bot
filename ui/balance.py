@@ -3,19 +3,28 @@ import lib.steam_api as Steam
 import lib.vortex_api as Vortex
 from tools.text import formatCoins
 import datetime
+import settings
+
+
+logger = settings.logging.getLogger('discord')
 
 async def _tryGetUser(interaction: discord.Interaction) -> Vortex.User | None:
+    logger.info(f'Attempt to find user {interaction.user.id} ({interaction.user.name})')
     try:
         link = await Vortex.GetDiscordUser(interaction.user.id)
     except:
         await interaction.response.send_message(content='Вы не привязали ваш аккаунт к Steam, используйте команду `/link`, чтобы сделать это.', ephemeral=True)
+        logger.info(f'User not found')
         return None
+    logger.info(f'User found: {link['user']["steamId"]}')
     return link['user']
 
 
 async def _GetWalletEmbed(interaction: discord.Interaction) -> discord.Embed:
     user = await _tryGetUser(interaction)
-    if user is None: return
+    if user is None:
+        logger.info(f'User not found -> embed not created')
+        return
     summary = await Steam.GetPlayerSummaries(user['steamId'])
     balance = await Vortex.GetBalance(user['steamId'])
     privileges = await Vortex.GetPrivilegeSet(user['steamId'])
@@ -28,15 +37,21 @@ async def _GetWalletEmbed(interaction: discord.Interaction) -> discord.Embed:
 
 
 async def SendWallet(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=(await _GetWalletEmbed(interaction)), view=WalletView(), ephemeral=True)
+    embed = await _GetWalletEmbed(interaction)
+    if embed is None:
+        logger.info('Embed is not created: return')
+        return
+    await interaction.response.send_message(embed=embed, view=WalletView(), ephemeral=True)
 
 class WalletView(discord.ui.View):
     @discord.ui.button(label='Обновить', style=discord.ButtonStyle.blurple)
     async def update(self, interaction: discord.Interaction, button: discord.ui.Button):
+        logger.info(f'Wallet update button pressed {interaction.user.id} ({interaction.user.name})')
         await interaction.response.edit_message(embed=(await _GetWalletEmbed(interaction)))
     
     @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
     async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
+        logger.info(f'Wallet share button pressed {interaction.user.id} ({interaction.user.name})')
         embed = await _GetWalletEmbed(interaction)
         await interaction.response.edit_message(embed=embed)
         await interaction.channel.send(f'Информация об аккаунте {interaction.user.mention}', embed=embed, silent=True)
