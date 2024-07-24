@@ -10,6 +10,7 @@ class PreferencesStructure(TypedDict):
     vip_role_id: int
     premium_role_id: int
     legend_role_id: int
+    linked_role_id: int
 
 
 load_dotenv()
@@ -46,7 +47,7 @@ def SavePreferences():
         json.dump(Preferences, f)
 
 def IsSetUp():
-    return all(i in Preferences.keys() for i in ['vip_role_id', 'premium_role_id', 'legend_role_id'])
+    return all(i in Preferences.keys() for i in ['vip_role_id', 'premium_role_id', 'legend_role_id', 'linked_role_id'])
 
 
 LOGGING_CONFIG = {

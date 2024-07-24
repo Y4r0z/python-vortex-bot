@@ -1,4 +1,5 @@
 import discord
+from lib.vortex_api import GetDiscordUser
 import settings
 from discord import app_commands
 from discord.ext import commands
@@ -15,6 +16,14 @@ class LinkCommand(commands.Cog):
     @app_commands.command(name='link', description='Привязать ваш Steam аккаунт к Discord')
     async def linkcommand(self, interaction: discord.Interaction):
         logger.info(f'Link command called by {interaction.user.id} ({interaction.user.name})')
+        if not settings.IsSetUp():
+            await interaction.response.send_message(f'Бот еще не настроен! Сообщите администратору сервера.')
+        try:
+            await GetDiscordUser(interaction.user.id)
+            await interaction.response.send_message('Вы уже привязали свой аккаунт', ephemeral=True)
+            return          
+        except:
+            pass
         view = LinkView()
         await interaction.response.send_message(
             content='Нажмите, чтобы привязать ваш Steam аккаунт.', 

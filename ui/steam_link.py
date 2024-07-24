@@ -1,6 +1,7 @@
 import discord
 from lib.steam_api import GetPlayerSummaries, PlayerSummary
 from lib.vortex_api import GetDiscordUser, LinkUser, GetDiscordUserSteam
+import settings
 
 
 def embedFromSteam(summary : PlayerSummary, title: str) -> discord.Embed:
@@ -20,6 +21,7 @@ class AcceptLinkView(discord.ui.View):
     @discord.ui.button(label='Подтвердить', style=discord.ButtonStyle.success)
     async def success(self, interaction: discord.Interaction, button: discord.ui.Button):
         link = await LinkUser(steam_id=self.steam['steamid'], discord_id=interaction.user.id)
+        await interaction.user.add_roles(discord.Object(id=settings.Preferences['linked_role_id']))
         await interaction.response.edit_message(view=None, embed=embedFromSteam(self.steam, f'Вы связали ваш аккаунт Discord с аккаунтом Steam: {link["user"]["steamId"]}.'))
         
 

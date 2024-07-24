@@ -10,3 +10,4 @@ services:
       - .env
     volumes:
       - ./logs:/app/logs:z
+      - ./preferences:/app/preferences:z

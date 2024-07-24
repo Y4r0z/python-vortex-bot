@@ -19,7 +19,8 @@ class SetupCommand(commands.Cog):
         if not (await checkAdmin(interaction)): return
         logger.info(f'Setup command called by {interaction.user.id} ({interaction.user.name})')
         view = SetupView()
-        await interaction.response.send_message(content='Настройка бота', view=view, ephemeral=True)
+        text = 'Бот уже настроен. Мы можете спокойно отменить данное действие.' if settings.IsSetUp() else 'Бот не настроен, обязательно выберите все роли.'
+        await interaction.response.send_message(content=text, view=view, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
