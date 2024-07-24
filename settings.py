@@ -13,13 +13,22 @@ class PreferencesStructure(TypedDict):
 
 
 load_dotenv()
-
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-STEAM_TOKEN = os.getenv("STEAM_TOKEN")
-VORTEX_TOKEN = os.getenv("VORTEX_TOKEN")
-VORTEX_HOST = os.getenv("VORTEX_HOST")
-GUILD_ID = os.getenv("GUILD_ID")
+DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN")
+STEAM_TOKEN: str = os.getenv("STEAM_TOKEN")
+VORTEX_TOKEN: str = os.getenv("VORTEX_TOKEN")
+VORTEX_HOST: str = os.getenv("VORTEX_HOST")
+GUILD_ID: str = os.getenv("GUILD_ID")
 Preferences : PreferencesStructure = {}
+
+assert DISCORD_TOKEN, 'Не указан токен Discord - DISCORD_TOKEN'
+assert STEAM_TOKEN, 'Не указан ключ Steam API - STEAM_TOKEN'
+assert VORTEX_TOKEN, 'Не указан токен Vortex API - VORTEX_TOKEN'
+assert VORTEX_HOST, 'Не указан адрес сервера Vortex API - VORTEX_HOST'
+assert GUILD_ID, 'Не указан токен сервера - GUILD_ID'
+
+
+BASE_DIR = pathlib.Path(__file__).parent
+COGS_DIR = BASE_DIR / "cogs"
 
 
 preferences_dir = 'preferences'

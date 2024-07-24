@@ -9,4 +9,4 @@ services:
     env_file:
       - .env
     volumes:
-      - ./logs:./logs
+      - ./logs:/app/logs:z
