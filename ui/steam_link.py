@@ -2,6 +2,8 @@ import discord
 from lib.steam_api import GetPlayerSummaries, PlayerSummary
 from lib.vortex_api import GetDiscordUser, LinkUser, GetDiscordUserSteam
 import settings
+from tools.ds import syncAllRoles
+import lib.vortex_api as Vortex
 
 
 def embedFromSteam(summary : PlayerSummary, title: str) -> discord.Embed:
@@ -20,8 +22,12 @@ class AcceptLinkView(discord.ui.View):
     
     @discord.ui.button(label='Подтвердить', style=discord.ButtonStyle.success)
     async def success(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message('Вы выполнили команду не на сервере!', ephemeral=True)
+            return
         link = await LinkUser(steam_id=self.steam['steamid'], discord_id=interaction.user.id)
         await interaction.user.add_roles(discord.Object(id=settings.Preferences['linked_role_id']))
+        await syncAllRoles(interaction.user)
         await interaction.response.edit_message(view=None, embed=embedFromSteam(self.steam, f'Вы связали ваш аккаунт Discord с аккаунтом Steam: {link["user"]["steamId"]}.'))
         
 
@@ -31,7 +37,7 @@ class AcceptLinkView(discord.ui.View):
     
 
 class LinkModal(discord.ui.Modal, title='Интеграция со Steam'):
-    steamid = discord.ui.TextInput(
+    steamid: discord.ui.TextInput = discord.ui.TextInput(
         style=discord.TextStyle.short,
         label="Steam ID",
         required=True, 
@@ -48,7 +54,7 @@ class LinkModal(discord.ui.Modal, title='Интеграция со Steam'):
         view = AcceptLinkView(steam=summary)
         await interaction.response.send_message(view=view, embed=embedFromSteam(summary, 'Подтвердите, что это ваш аккаунт'), ephemeral=True)
 
-    async def on_error(self, interaction: discord.Interaction, error):
+    async def on_error(self, interaction: discord.Interaction, error): #type: ignore
         await interaction.response.send_message('Игрок с данным Steam ID не найден!', ephemeral=True)
 
 class LinkView(discord.ui.View):

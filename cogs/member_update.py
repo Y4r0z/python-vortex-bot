@@ -1,7 +1,7 @@
 import discord
 import settings
 from discord.ext import commands
-from tools.discord import checkAdmin
+from tools.ds import checkAdmin
 import lib.vortex_api as Vortex
 
 logger = settings.logging.getLogger('discord')
@@ -59,10 +59,10 @@ async def manageRole(before: discord.Member, after: discord.Member, role_id: int
 
 
 
-
 class MemberUpdateEvent(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        
         super().__init__()
 
     @commands.Cog.listener()

@@ -9,7 +9,7 @@ from ui.setup import SetupView
 from ui.balance import SendWallet, PayWarnView, BalanceShareView
 from tools.text import formatCoins
 import pathlib
-from tools.discord import checkAdmin, tryGetUser
+from tools.ds import checkAdmin, tryGetUser #type: ignore
 
 logger = settings.logging.getLogger('discord')
     

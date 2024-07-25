@@ -4,7 +4,7 @@ from discord import app_commands
 from discord.ext import commands
 from ui.balance import PayWarnView
 from tools.text import formatCoins
-from tools.discord import tryGetUser
+from tools.ds import tryGetUser
 import lib.vortex_api as Vortex
 
 

@@ -4,6 +4,7 @@ import settings
 from discord import app_commands
 from discord.ext import commands
 from ui.steam_link import LinkView
+from tools.ds import syncRole
 
 logger = settings.logging.getLogger('discord')
 

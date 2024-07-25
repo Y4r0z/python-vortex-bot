@@ -20,11 +20,11 @@ async def _tryGetUser(interaction: discord.Interaction) -> Vortex.User | None:
     return link['user']
 
 
-async def _GetWalletEmbed(interaction: discord.Interaction) -> discord.Embed:
+async def _GetWalletEmbed(interaction: discord.Interaction) -> discord.Embed | None:
     user = await _tryGetUser(interaction)
     if user is None:
         logger.info(f'User not found -> embed not created')
-        return
+        return None
     summary = await Steam.GetPlayerSummaries(user['steamId'])
     balance = await Vortex.GetBalance(user['steamId'])
     privileges = await Vortex.GetPrivilegeSet(user['steamId'])
@@ -53,8 +53,12 @@ class WalletView(discord.ui.View):
     async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
         logger.info(f'Wallet share button pressed {interaction.user.id} ({interaction.user.name})')
         embed = await _GetWalletEmbed(interaction)
+        if embed is None:
+            await interaction.response.send_message('Пользователь не найден')
+            return
         await interaction.response.edit_message(embed=embed)
-        await interaction.channel.send(f'Информация об аккаунте {interaction.user.mention}', embed=embed, silent=True)
+        if not isinstance(interaction.channel, discord.TextChannel): return
+        else: await interaction.channel.send(f'Информация об аккаунте {interaction.user.mention}', embed=embed, silent=True)
 
 
 
@@ -68,6 +72,7 @@ class PayWarnView(discord.ui.View):
     @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
     async def warn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(view=None)
+        if not isinstance(interaction.channel, discord.TextChannel): return
         await interaction.channel.send(f'{self.source.mention} передал {self.target.mention} {formatCoins(self.value)}', silent=True)
 
 class BalanceShareView(discord.ui.View):
@@ -79,4 +84,5 @@ class BalanceShareView(discord.ui.View):
     @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
     async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(view=None)
+        if not isinstance(interaction.channel, discord.TextChannel): return
         await interaction.channel.send(f'Баланс игрока {self.user.mention}: {formatCoins(self.value)}', silent=True)
