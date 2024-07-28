@@ -52,9 +52,11 @@ async def syncRole(member: discord.Member, role_id: int, privilege_id: int) -> b
         return True
     steam_id = user['user']['steamId']
     privileges = await Vortex.GetUserPrivileges(steam_id)
-    if privilege_id in [i['privilege']['id'] for i in privileges]:
-        # Привелегия уже есть у пользователя
-        found = next(i for i in privileges if i['privilege']['id'] == privilege_id) # Найденная привелегия
+    # Привелегия уже есть у пользователя
+    for found in privileges:
+        if found['privilege']['id'] != privilege_id:
+            continue
+        logger.info(f'[SyncRole: {member.id}]: Found privilege status ({found['id']})')
         if found['activeUntil'] == Vortex.BoostyPrivilegeUntil:
             # Эта привелегия из Boosty
             if hasRole(member, role_id):
@@ -64,7 +66,7 @@ async def syncRole(member: discord.Member, role_id: int, privilege_id: int) -> b
             # У пользователя есть привелегия, но нет роли - удаляем привелегию
             logger.info(f'[SyncRole: {member.id}]: The user has privilege but not role - removing privilege')
             await Vortex.DeleteUserPrivilege(steam_id, found)
-            return False
+            continue
         # Привелегия не из Boosty
         logger.info(f'[SyncRole: {member.id}]: Found same privilege ({privilege_id}), but not from Boosty - continue')
     # У пользователя нет привелегии
