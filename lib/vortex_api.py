@@ -109,7 +109,7 @@ async def LinkUser(steam_id: str, discord_id: str | int) -> SteamLink:
     return await _Post(f'{host}/discord?steam_id={steam_id}&discord_id={discord_id}')
 
 async def GetDiscordUser(discord_id: str | int) -> SteamLink:
-    return await _Get(f'{host}/discord?&discord_id={discord_id}')
+    return await _Get(f'{host}/discord?discord_id={discord_id}')
 
 async def GetDiscordUserSteam(steam_id: str) -> SteamLink:
     return await _Get(f'{host}/discord/steam?steam_id={steam_id}')
