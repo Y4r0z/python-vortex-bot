@@ -1,10 +1,10 @@
 import discord
-from lib.steam_api import GetPlayerSummaries, PlayerSummary
+from lib.steam_api import GetPlayerSummaries, PlayerSummary, ResolveVanityURL
 from lib.vortex_api import GetDiscordUser, LinkUser, GetDiscordUserSteam
 import settings
 from tools.ds import syncAllRoles
 import lib.vortex_api as Vortex
-
+import urllib.parse
 
 def embedFromSteam(summary : PlayerSummary, title: str) -> discord.Embed:
     embed = discord.Embed(
@@ -44,7 +44,13 @@ class LinkModal(discord.ui.Modal, title='Интеграция со Steam'):
         placeholder='76561198086700922')
     
     async def on_submit(self, interaction: discord.Interaction):
-        summary = await GetPlayerSummaries(steam_id=self.steamid.value)
+        try:
+            summary = await GetPlayerSummaries(self.steamid.value)
+        except:
+            path = urllib.parse.urlparse(self.steamid.value).path
+            vanity = list(filter(lambda x: x!='', path.split('/')))[-1]
+            steamid = await ResolveVanityURL(vanity)
+            summary = await GetPlayerSummaries(steamid)
         try:
             await GetDiscordUserSteam(self.steamid.value)
             await interaction.response.send_message('Это пользователь уже связал свой аккаунт! 👀', ephemeral=True)
