@@ -65,6 +65,11 @@ class PrivilegeSet(TypedDict):
     customPrefix: str
     welcomePhrase: str
 
+class MoneyDrop(TypedDict):
+    user: User
+    value: int
+    nextDrop: str
+
 def PrivilegeSetToString(ps: PrivilegeSet):
     lst = []
     if ps['owner']: lst.append('Владелец (owner)')
@@ -134,3 +139,6 @@ async def PayBalance(source_id: str, target_id: str, value: int) -> DuplexTransa
 
 async def GetPrivilegeSet(steam_id: str) -> PrivilegeSet:
     return await _Get(f'{host}/privilege?steam_id={steam_id}')
+
+async def GetMoneyDrop(steam_id: str) -> MoneyDrop:
+    return await _Get(f'{host}/balance/drop?steam_id={steam_id}')
