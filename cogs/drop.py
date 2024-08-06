@@ -38,7 +38,7 @@ class DropCommand(commands.Cog):
             return
         drop = await Vortex.GetMoneyDrop(user['steamId'])
         value = drop['value']
-        time = int((datetime.datetime.fromisoformat(drop['nextDrop']) + datetime.timedelta(hours=3)).timestamp())
+        time = int(datetime.datetime.fromisoformat(drop['nextDrop']).replace(tzinfo=datetime.timezone.utc).timestamp())
         timerMsg = f'Вы можете забрать больше коинов <t:{time}:R>'
         if value == 0:
             await interaction.response.send_message(f'Вы уже получали коины! {timerMsg}', ephemeral=True)
