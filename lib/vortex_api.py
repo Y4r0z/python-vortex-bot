@@ -1,6 +1,7 @@
 import aiohttp
 import settings
-from typing import TypedDict, List
+import datetime
+from typing import TypedDict, List, Union
 
 
 
@@ -70,6 +71,20 @@ class MoneyDrop(TypedDict):
     value: int
     nextDrop: str
 
+class Giveaway(TypedDict):
+    id: int
+    user: User
+    timeCreated: str
+    activeUntil: str
+    maxUseCount: int
+    curUseCount: int
+    reward: int
+    status: int
+
+class StatusCode(TypedDict):
+    status: int
+
+
 def PrivilegeSetToString(ps: PrivilegeSet):
     lst = []
     if ps['owner']: lst.append('Владелец (owner)')
@@ -86,16 +101,16 @@ def PrivilegeSetToString(ps: PrivilegeSet):
 
 BoostyPrivilegeUntil = '2050-01-01T00:00:00'
 
-async def _Get(href: str):
+async def _Get(href: str, supressErrors = False):
     async with aiohttp.ClientSession() as session:
         async with session.get(href) as response:
-            if response.status // 100 != 2: raise Exception(f'HTTP ERROR: {response.start}')
+            if response.status // 100 != 2 and not supressErrors: raise Exception(f'HTTP ERROR: {response.start}')
             return await response.json()
         
-async def _Post(href: str):
+async def _Post(href: str, data = None, supressErrors = False):
     async with aiohttp.ClientSession() as session:
-        async with session.post(href, headers=headers) as response:
-            if response.status // 100 != 2: raise Exception(f'HTTP ERROR: {response.start}')
+        async with session.post(href, headers=headers, json=data) as response:
+            if response.status // 100 != 2 and not supressErrors: raise Exception(f'HTTP ERROR: {response.start}')
             return await response.json()
 
 async def _Delete(href: str):
@@ -142,3 +157,25 @@ async def GetPrivilegeSet(steam_id: str) -> PrivilegeSet:
 
 async def GetMoneyDrop(steam_id: str) -> MoneyDrop:
     return await _Get(f'{host}/balance/drop?steam_id={steam_id}')
+
+async def CreateGiveaway(steam_id: str, useCount: int, reward: int, minutes: int) -> Giveaway:
+    """
+    @param useCount: сколько раз можно забрать награду
+    @param reward : количество коинов в качестве награды
+    @param minutes: сколько минут длится раздача
+    """
+    payload = {
+        'useCount': useCount,
+        'reward': reward,
+        'activeUntil': (datetime.datetime.now(datetime.UTC).replace(microsecond=0) + datetime.timedelta(minutes=minutes)).isoformat()
+    }
+    return await _Post(f'{host}/balance/giveaway?steam_id={steam_id}', data=payload, supressErrors=True)
+
+async def CheckoutGiveaway(steam_id: str, giveaway_id: int) -> Giveaway:
+    return await _Get(f'{host}/balance/giveaway/checkout?steam_id={steam_id}&giveaway_id={giveaway_id}', supressErrors=True)
+
+async def DeleteGiveaway(giveaway_id: int):
+    return await _Delete(f'{host}/balance/giveaway?giveaway_id={giveaway_id}')
+
+async def GetGiveaways(steam_id: str) -> List[Giveaway]:
+    return await _Get(f'{host}/balance/giveaway/all?steam_id={steam_id}')
