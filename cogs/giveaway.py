@@ -12,7 +12,7 @@ logger = settings.logging.getLogger('discord')
 
 def createEmbedText(giveaway: Vortex.Giveaway):
     time = int(datetime.datetime.fromisoformat(giveaway['activeUntil']).replace(tzinfo=datetime.timezone.utc).timestamp())
-    return f"Награда: **{formatCoins(giveaway['reward'])}**\nРаздача закончится: <t:{time}:R>\nКоличество участников: {giveaway['curUseCount']}/{giveaway['maxUseCount']}"
+    return f"Награда: **{formatCoins(giveaway['reward'])}**\nОкончание: <t:{time}:R>\nУчастники: **{giveaway['curUseCount']}/{giveaway['maxUseCount']}**"
 
 def createGiveawayEmbed(giveaway: Vortex.Giveaway, user: discord.Member):   
     embed = discord.Embed(
@@ -44,6 +44,7 @@ class GiveawayExistsView(discord.ui.View):
         await publichGiveaway(interaction, self.giveaway)
         button.disabled = True
         await interaction.response.edit_message(view=None)
+        logger.info(f'Giveaway ({self.giveaway['id']}) published')
         
     
     @discord.ui.button(label='Удалить', style=discord.ButtonStyle.danger)
@@ -58,6 +59,7 @@ class GiveawayExistsView(discord.ui.View):
             await interaction.response.send_message('Не удалось удалить раздачу', ephemeral=True)
         else:
             await interaction.response.edit_message(content='Раздача удалена', view=None)
+            logger.info(f'Giveaway ({self.giveaway['id']}) deleted')
 
 
 
@@ -69,6 +71,7 @@ class GiveawayCheckoutView(discord.ui.View):
     
     @discord.ui.button(label='Забрать', style=discord.ButtonStyle.green)
     async def checkout(self, interaction: discord.Interaction, button: discord.ui.Button):
+        logger.info(f'Giveaway checkout called by {interaction.user.id} ({interaction.user.name})')
         if (user:=await tryGetUser(interaction)) is None: return
         if not isinstance(interaction.user, discord.Member): return
         try:
@@ -98,6 +101,7 @@ class GiveawayCheckoutView(discord.ui.View):
             embed = interaction.message.embeds[0]
             embed.description = createEmbedText(giveaway)
             if interaction.message: await interaction.message.edit(embed=embed, view=self)
+            logger.info(f'Successful checkout')
         await interaction.response.send_message(message, ephemeral=True)
         
 
@@ -113,12 +117,14 @@ class GiveawayCommand(commands.Cog):
     @app_commands.command(name='giveaway', description='Создать раздачу коинов за ваш счёт')
     @discord.app_commands.rename(reward='награда', useCount='количество', minutes='длительность')
     @discord.app_commands.describe(reward='Сколько коинов получит игрок за участие', useCount='Максимальное количество участников', minutes='Сколько минут будет идти раздача')
-    async def linkcommand(self, interaction: discord.Interaction, reward:int, useCount: int, minutes: int):
+    async def linkcommand(self, interaction: discord.Interaction, reward:int, useCount: int, minutes: int = 1440):
+        logger.info(f'Giveaway command called by {interaction.user.id} ({interaction.user.name})')
         if (user:=await tryGetUser(interaction)) is None: return
         history = await Vortex.GetGiveaways(user['steamId'])
         if len(history) > 0:
             first = history[0]
             ftime = int(datetime.datetime.fromisoformat(first['activeUntil']).replace(tzinfo=datetime.timezone.utc).timestamp())
+            logger.info(f'Giveaway exists')
             await interaction.response.send_message(
                 f'У вас уже имеется активная раздача до <t:{ftime}:f>; {first["curUseCount"]}/{first['maxUseCount']} участников; награда: {formatCoins(first['reward'])}.',
                 view=GiveawayExistsView(first),
@@ -150,6 +156,7 @@ class GiveawayCommand(commands.Cog):
         else:
             message = 'Вы успешно создали раздачу'
             await publichGiveaway(interaction, giveaway)
+            logger.info(f'Giveaway created')
         await interaction.response.send_message(message, ephemeral=True)
 
 
