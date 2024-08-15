@@ -23,6 +23,7 @@ async def checkAdmin(interaction: discord.Interaction):
     """
     Проверка пользователя на права администратора
     """
+    if not isinstance(interaction.user, discord.Member): return False
     logger.info(f'Checking administrator flag for: {interaction.user.id} ({interaction.user.name})')
     if interaction.user.guild_permissions.administrator == False:
         await interaction.response.send_message('Данная команда может быть использована только администратором.', ephemeral=True)
@@ -87,3 +88,36 @@ async def syncAllRoles(member: discord.Member | discord.User) -> None:
         await syncRole(member, settings.Preferences['premium_role_id'], Vortex.PrivilegeTypeId.Premium) or \
         await syncRole(member, settings.Preferences['legend_role_id'], Vortex.PrivilegeTypeId.Legend):
         ...
+
+
+async def tryGetOtherUser(user: discord.User | discord.Member, interaction: discord.Interaction) -> Vortex.User | None:
+    """
+    Функция пытается найти связанного пользователя Discord через API.
+    """
+    logger.info(f'Attempt to find user {user.id} ({user.name})')
+    try:
+        link = await Vortex.GetDiscordUser(user.id)
+    except:
+        await interaction.response.send_message(content='Пользователь не привязал аккаунт', ephemeral=True)
+        logger.info(f'User not found')
+        return None
+    logger.info(f'User found: {link['user']["steamId"]}')
+    return link['user']
+
+
+class ShareView(discord.ui.View):
+    def __init__(self, output: str, embed = None, *, timeout: float | None = 180):
+        super().__init__(timeout=timeout)
+        self.output = output
+        self.embed = embed
+    
+    @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.primary)
+    async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
+        logger.info(f'Share button pressed {interaction.user.id} ({interaction.user.name})')
+        await interaction.response.send_message(self.output, embed=self.embed)
+
+
+def UserHasRole(member: discord.Member | discord.User, role_name: str) -> bool:
+    if not isinstance(member, discord.Member): return False
+    if not settings.IsRoleExists(role_name): return False
+    return settings.Preferences[role_name] in [i.id for i in member.roles] 

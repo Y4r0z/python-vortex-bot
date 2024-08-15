@@ -11,7 +11,14 @@ class PreferencesStructure(TypedDict):
     premium_role_id: int
     legend_role_id: int
     linked_role_id: int
+    moder_role_id: int
 
+class RoleNames:
+    Vip = 'vop_role_id'
+    Premium = 'premium_role_id'
+    Legend = 'legend_role_id'
+    Moder = 'moder_role_id'
+    Linked = 'linked_role_id'
 
 load_dotenv()
 DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN")
@@ -47,8 +54,14 @@ def SavePreferences():
         json.dump(Preferences, f)
 
 def IsSetUp():
-    return all(i in Preferences.keys() for i in ['vip_role_id', 'premium_role_id', 'legend_role_id', 'linked_role_id'])
+    return all(i in Preferences.keys() for i in [
+        'vip_role_id', 'premium_role_id', 'legend_role_id', 'linked_role_id'])
 
+def IsCommandsSetUp():
+    return all(i in Preferences.keys() for i in ['moder_role_id'])
+
+def IsRoleExists(role_name: str) -> bool:
+    return role_name in Preferences.keys() and Preferences[role_name] is not None
 
 LOGGING_CONFIG = {
     "version": 1,

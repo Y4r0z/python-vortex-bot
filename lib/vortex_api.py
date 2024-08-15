@@ -2,6 +2,7 @@ import aiohttp
 import settings
 import datetime
 from typing import TypedDict, List, Union
+from lib.steam_api import PlayerSummary
 
 
 
@@ -83,6 +84,45 @@ class Giveaway(TypedDict):
 
 class StatusCode(TypedDict):
     status: int
+
+class ChatLog(TypedDict):
+    id: int
+    steamId: str
+    nickname: str
+    text: str
+    time: str
+    server: str
+    team: int
+    chatTeam: int
+
+class TopEntry(TypedDict):
+    rank: int
+    steamId: str
+    score: int
+    steamInfo: PlayerSummary
+
+class PerkSet(TypedDict):
+    survivorPerk1: str
+    survivorPerk2: str
+    survivorPerk3: str
+    survivorPerk4: str
+    boomerPerk: str
+    smokerPerk: str
+    hunterPerk: str
+    jockeyPerk: str
+    spitterPerk: str
+    chargerPerk: str
+    tankPerk: str
+
+class BulkProfileInfo(TypedDict):
+    steamInfo: PlayerSummary
+    rank: int | None
+    balance: int
+    perks: PerkSet | None
+    privileges: list[PrivilegeStatus]
+    discordId: int | None
+    
+    
 
 
 def PrivilegeSetToString(ps: PrivilegeSet):
@@ -179,3 +219,28 @@ async def DeleteGiveaway(giveaway_id: int):
 
 async def GetGiveaways(steam_id: str) -> List[Giveaway]:
     return await _Get(f'{host}/balance/giveaway/all?steam_id={steam_id}')
+
+async def GetLogs(
+    text: str | None,
+    steam_id: str | None,
+    nickname: str | None,
+    server: str | None,
+    offset: int = 0,
+    limit: int = 15
+) -> List[ChatLog]:
+    href = f'{host}/logs?limit={limit}&offset={offset}'
+    if text: href += f'&text={text}'
+    if steam_id: href += f'&steam_id={steam_id}'
+    if nickname: href += f'&nickname={nickname}'
+    if server: href += f'&server={server}'
+    return await _Get(href)
+    
+    
+async def GetScoreTop(offset: int = 0, limit: int = 10) -> List[TopEntry]:
+    return await _Get(f'{host}/score/top?limit={limit}&offset={offset}')
+
+async def GetPlayerRank(steam_id: str) -> int:
+    return await _Get(f'{host}/score/top/rank?steam_id={steam_id}')
+
+async def GetBulkProfile(steam_id: str) -> BulkProfileInfo:
+    return await _Get(f'{host}/profile/bulk?steam_id={steam_id}&cached=False')
