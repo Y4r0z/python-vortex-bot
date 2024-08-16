@@ -35,7 +35,7 @@ f"""
     embed = discord.Embed(
         color=discord.Color.dark_teal(),
         title='Информация об игроке',
-        description=f'Ранг: {rank}\nБаланс: {formatCoins(info["balance"])}'
+        description=f'Ранг: {rank}\nБаланс: {formatCoins(info["balance"])}\nSteam ID: {info["steamInfo"]["steamid"]}',
     )
     embed.set_author(
         name=info['steamInfo']['personaname'],
@@ -122,7 +122,7 @@ class ModerCommands(commands.Cog):
             await interaction.response.send_message('Ошибка получения логов чата.', ephemeral=True)
             logger.error(ex)
             return
-        result = '\n'.join([logToStr(i, False, True, True, False) for i in logs])
+        result = '\n'.join([logToStr(i, True, True, True, False) for i in logs])
         result = '(Логи не найдены)' if len(logs) == 0 else result if len(result) < 1930 else result[:1930]
         view = ShareView(output=f'{interaction.user.mention} поделился логами чата:\n{result}')
         await interaction.response.send_message(result, view=view, ephemeral=True)
