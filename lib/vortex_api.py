@@ -121,7 +121,10 @@ class BulkProfileInfo(TypedDict):
     perks: PerkSet | None
     privileges: list[PrivilegeStatus]
     discordId: int | None
-    
+
+class Rank(TypedDict):
+    rank: int
+    score: int
     
 
 
@@ -239,7 +242,7 @@ async def GetLogs(
 async def GetScoreTop(offset: int = 0, limit: int = 10) -> List[TopEntry]:
     return await _Get(f'{host}/score/top?limit={limit}&offset={offset}')
 
-async def GetPlayerRank(steam_id: str) -> int:
+async def GetPlayerRank(steam_id: str) -> Rank:
     return await _Get(f'{host}/score/top/rank?steam_id={steam_id}')
 
 async def GetBulkProfile(steam_id: str) -> BulkProfileInfo:
