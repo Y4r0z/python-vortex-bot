@@ -26,6 +26,17 @@ class SyncCommand(commands.Cog):
         if (role:=settings.Preferences['linked_role_id']) not in [i.id for i in member.roles]:
             await member.add_roles(discord.Object(id=role))
         logger.info('Sync: Ok')
+    
+    @app_commands.command(name='syncuser', description='Синхронизирует определенного пользователя')
+    async def syncuser(self, interaction: discord.Interaction, member: discord.Member):
+        logger.info(f'SyncUser command called by: {interaction.user.id} ({interaction.user.name})')
+        if not checkAdmin(interaction): return
+        await syncAllRoles(member)
+        await interaction.response.send_message('Синхронизация проведена.', ephemeral=True)
+        if (role:=settings.Preferences['linked_role_id']) not in [i.id for i in member.roles]:
+            await member.add_roles(discord.Object(id=role))
+        logger.info('SyncUser: Ok')
+        
 
 
 async def setup(bot: commands.Bot):
