@@ -123,7 +123,7 @@ class ModerCommands(commands.Cog):
             logger.error(ex)
             return
         result = '\n'.join([logToStr(i, False, True, True, False) for i in logs])
-        result = '(Логи не найдены)' if len(logs) == 0 else result if len(result) < 2000 else result[:2000]
+        result = '(Логи не найдены)' if len(logs) == 0 else result if len(result) < 1930 else result[:1930]
         view = ShareView(output=f'{interaction.user.mention} поделился логами чата:\n{result}')
         await interaction.response.send_message(result, view=view, ephemeral=True)
     
