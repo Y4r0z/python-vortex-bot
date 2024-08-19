@@ -125,7 +125,17 @@ class BulkProfileInfo(TypedDict):
 class Rank(TypedDict):
     rank: int
     score: int
-    
+
+
+class UserAlreadyBannedError(Exception):
+    ...
+class UserNotFoundError(Exception):
+    ...
+class HTTPError(Exception):
+    def __init__(self, status_code: int, message: str):
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f'HTTP Error {status_code}: {message}')
 
 
 def PrivilegeSetToString(ps: PrivilegeSet):
@@ -147,13 +157,13 @@ BoostyPrivilegeUntil = '2050-01-01T00:00:00'
 async def _Get(href: str, supressErrors = False):
     async with aiohttp.ClientSession() as session:
         async with session.get(href) as response:
-            if response.status // 100 != 2 and not supressErrors: raise Exception(f'HTTP ERROR: {response.start}')
+            if response.status // 100 != 2 and not supressErrors: raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
             return await response.json()
         
 async def _Post(href: str, data = None, supressErrors = False):
     async with aiohttp.ClientSession() as session:
         async with session.post(href, headers=headers, json=data) as response:
-            if response.status // 100 != 2 and not supressErrors: raise Exception(f'HTTP ERROR: {response.start}')
+            if response.status // 100 != 2 and not supressErrors: raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
             return await response.json()
 
 async def _Delete(href: str):
@@ -247,3 +257,16 @@ async def GetPlayerRank(steam_id: str) -> Rank:
 
 async def GetBulkProfile(steam_id: str) -> BulkProfileInfo:
     return await _Get(f'{host}/profile/bulk?steam_id={steam_id}&cached=False')
+
+
+async def SbBanPlayer(steam_id: str, duration: int, reason: str):
+    try:
+        r = await _Post(f'{host}/sourcebans/ban?steam_id={steam_id}&duration={duration}&reason={reason}')
+    except HTTPError as e:
+        if e.status_code == 404:
+            raise UserNotFoundError('User not found')
+        elif e.status_code == 409:
+            raise UserAlreadyBannedError('User is already banned')
+        else:
+            raise e
+    return r
