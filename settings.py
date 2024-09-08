@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 import os
 import pathlib
 import json
-from typing import TypedDict
+from typing import TypedDict, Literal, Any, TypeVar, Callable, Optional
 from logging.config import dictConfig
 import logging
 
@@ -12,6 +12,7 @@ class PreferencesStructure(TypedDict):
     legend_role_id: int
     linked_role_id: int
     moder_role_id: int
+    bot_output_channel_id: int
 
 class RoleNames:
     Vip = 'vop_role_id'
@@ -20,13 +21,20 @@ class RoleNames:
     Moder = 'moder_role_id'
     Linked = 'linked_role_id'
 
+class ChannelNames:
+    BotOutput = 'bot_output_channel_id'
+    
+RolesLiteral = Literal['vip_role_id', 'premium_role_id', 'legend_role_id', 'moder_role_id', 'linked_role_id']
+ChannelsLiteral = Literal['bot_output_channel_id']
+PreferencesLiteral = Literal['vip_role_id', 'premium_role_id', 'legend_role_id', 'moder_role_id', 'linked_role_id', 'bot_output_channel_id']
+
 load_dotenv()
-DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN")
-STEAM_TOKEN: str = os.getenv("STEAM_TOKEN")
-VORTEX_TOKEN: str = os.getenv("VORTEX_TOKEN")
-VORTEX_HOST: str = os.getenv("VORTEX_HOST")
-GUILD_ID: str = os.getenv("GUILD_ID")
-Preferences : PreferencesStructure = {}
+DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN") # type: ignore
+STEAM_TOKEN: str = os.getenv("STEAM_TOKEN") # type: ignore
+VORTEX_TOKEN: str = os.getenv("VORTEX_TOKEN") # type: ignore
+VORTEX_HOST: str = os.getenv("VORTEX_HOST") # type: ignore
+GUILD_ID: str = os.getenv("GUILD_ID") # type: ignore
+Preferences : PreferencesStructure = {} # type: ignore
 
 assert DISCORD_TOKEN, 'Не указан токен Discord - DISCORD_TOKEN'
 assert STEAM_TOKEN, 'Не указан ключ Steam API - STEAM_TOKEN'
@@ -60,8 +68,26 @@ def IsSetUp():
 def IsCommandsSetUp():
     return all(i in Preferences.keys() for i in ['moder_role_id'])
 
-def IsRoleExists(role_name: str) -> bool:
+def IsChannelsSetUp():
+    return all(i in Preferences.keys() for i in ['bot_output_channel_id'])
+
+def IsRoleExists(role_name: RolesLiteral) -> bool:
     return role_name in Preferences.keys() and Preferences[role_name] is not None
+
+def IsChannelExists(channel_name: ChannelsLiteral) -> bool:
+    return channel_name in Preferences.keys() and Preferences[channel_name] is not None
+
+
+__defaultProcessor = lambda x: int(x)
+T = TypeVar('T', bound=Any)
+def Get(
+    setting_name: PreferencesLiteral, 
+    defaultValue: T = None, # type: ignore
+    processor: Callable[[int], T] = __defaultProcessor, # type: ignore
+):
+    if setting_name in Preferences.keys() and Preferences[setting_name] is not None:
+        return processor(Preferences[setting_name])
+    return defaultValue
 
 LOGGING_CONFIG = {
     "version": 1,

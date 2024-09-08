@@ -2,9 +2,8 @@ import discord
 import settings
 from discord import app_commands
 from discord.ext import commands
-from ui.balance import BalanceShareView
 from tools.text import formatCoins
-from tools.ds import tryGetUser
+from tools.ds import tryGetUser, ShareView
 import lib.vortex_api as Vortex
 
 
@@ -24,10 +23,11 @@ class BalanceCommand(commands.Cog):
             logger.info(f'User not found)')
             return
         balance = await Vortex.GetBalance(user['steamId'])
+        view = ShareView(f'Баланс игрока {interaction.user.mention}: **{formatCoins(balance["value"])}**')
         await interaction.response.send_message(
             content=f'Ваш баланс: {formatCoins(balance['value'])}', 
             ephemeral=True, 
-            view=BalanceShareView(user=interaction.user, value=balance['value'])
+            view=view
         )
     
 async def setup(bot: commands.Bot):

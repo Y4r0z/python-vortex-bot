@@ -1,10 +1,10 @@
+from ast import alias
 import discord
 import settings
 from discord import app_commands
 from discord.ext import commands
-from ui.balance import PayWarnView
 from tools.text import formatCoins
-from tools.ds import tryGetUser
+from tools.ds import tryGetUser, ShareView
 import lib.vortex_api as Vortex
 
 
@@ -16,11 +16,11 @@ class PayCommand(commands.Cog):
         self.bot = bot
         super().__init__()
 
-    @app_commands.command(name='pay', description='Передать коины другому пользователю')
+    @app_commands.command(name='tip', description='Передать коины другому пользователю')
     @discord.app_commands.describe(target="Пользователь, которому вы передаете коины", value="Сколько коинов передать")
     @discord.app_commands.rename(target='кому', value='сколько')
     async def pay(self, interaction: discord.Interaction, target: discord.Member, value: int):
-        logger.info(f'Pay command called by {interaction.user.id} ({interaction.user.name})')
+        logger.info(f'Pay (tip) command called by {interaction.user.id} ({interaction.user.name})')
         if target.id == interaction.user.id:
             await interaction.response.send_message(content='Мы не можете передавать коины самому себе!', ephemeral=True)
             logger.info('User tried to pay himself: return')
@@ -50,7 +50,8 @@ class PayCommand(commands.Cog):
             logger.info(f'\nTransaction error:\n{str(e)}\n')
             await interaction.response.send_message(content='Не удалось передать коины.', ephemeral=True)
             return
-        view = PayWarnView(source=interaction.user, target=target, value=value)
+        channel = settings.Get('bot_output_channel_id', None, self.bot.get_channel)
+        view = ShareView(f'{interaction.user.mention} передал {target.mention} {formatCoins(value)}', channel=channel)
         logger.info('Pay: success')
         await interaction.response.send_message(
             content=f'Вы передали {formatCoins(value)} игроку {target.mention}.\nОстаток на балансе: {formatCoins(transaction["source"]["value"])}', 

@@ -42,13 +42,13 @@ class CommandsSetupCommand(commands.Cog):
         self.bot = bot
         super().__init__()
 
-    @app_commands.command(name='commands_setup', description='Настраивает особые команды бота')
+    @app_commands.command(name='setup_commands', description='Настраивает особые команды бота')
     @commands.has_permissions(administrator=True)
     async def setupcommand(self, interaction: discord.Interaction):
         if not (await checkAdmin(interaction)): return
         logger.info(f'Commands setup command called by {interaction.user.id} ({interaction.user.name})')
         view = CommandsSetupView()
-        text = 'Бот уже настроен. Мы можете спокойно отменить данное действие.' if settings.IsCommandsSetUp() else 'Бот не настроен, обязательно выберите роли.'
+        text = 'Бот уже настроен. Вы можете спокойно отменить данное действие.' if settings.IsCommandsSetUp() else 'Бот не настроен, обязательно выберите роли.'
         await interaction.response.send_message(content=text, view=view, ephemeral=True)
 
 

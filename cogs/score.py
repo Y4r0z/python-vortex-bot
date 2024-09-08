@@ -2,8 +2,6 @@ import discord
 import settings
 from discord import app_commands
 from discord.ext import commands
-from ui.balance import BalanceShareView
-from tools.text import formatCoins
 from tools.ds import tryGetUser, tryGetOtherUser, ShareView
 import lib.vortex_api as Vortex
 

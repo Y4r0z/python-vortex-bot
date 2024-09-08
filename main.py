@@ -3,12 +3,6 @@ import discord.ext.commands
 import settings
 import discord
 from discord.ext import commands
-from ui.steam_link import LinkView
-import lib.vortex_api as Vortex
-from ui.setup import SetupView
-from ui.balance import SendWallet, PayWarnView, BalanceShareView
-from tools.text import formatCoins
-import pathlib
 from tools.ds import checkAdmin, tryGetUser #type: ignore
 
 logger = settings.logging.getLogger('discord')

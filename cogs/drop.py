@@ -2,9 +2,8 @@ import discord
 import settings
 from discord import app_commands
 from discord.ext import commands
-from ui.balance import BalanceShareView
 from tools.text import formatCoins
-from tools.ds import tryGetUser
+from tools.ds import tryGetUser, ShareView
 import datetime
 import lib.vortex_api as Vortex
 
@@ -42,9 +41,10 @@ class DropCommand(commands.Cog):
         timerMsg = f'Вы можете забрать больше коинов <t:{time}:R>'
         if value == 0:
             await interaction.response.send_message(f'Вы уже получали коины! {timerMsg}', ephemeral=True)
-        else:
-            await interaction.response.send_message(f'Вы получили {formatCoins(value)}. {timerMsg}', ephemeral=True, \
-                                                    view=DropShareView(user=interaction.user, value=value))
+            return
+        channel: discord.TextChannel = settings.Get('bot_output_channel_id', None, self.bot.get_channel)
+        view = ShareView(f'Игроку {interaction.user.mention} выпало {formatCoins(value)} в `/drop`', channel=channel)
+        await interaction.response.send_message(f'Вы получили {formatCoins(value)}. {timerMsg}', ephemeral=True, view=view)
         
     
 async def setup(bot: commands.Bot):

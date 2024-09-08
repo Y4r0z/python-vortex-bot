@@ -59,30 +59,3 @@ class WalletView(discord.ui.View):
         await interaction.response.edit_message(embed=embed)
         if not isinstance(interaction.channel, discord.TextChannel): return
         else: await interaction.channel.send(f'Информация об аккаунте {interaction.user.mention}', embed=embed, silent=True)
-
-
-
-class PayWarnView(discord.ui.View):
-    def __init__(self, source: discord.Member | discord.User, target: discord.Member | discord.User, value: int, *, timeout: float | None = 180):
-        super().__init__(timeout=timeout)
-        self.source = source
-        self.target = target
-        self.value = value
-    
-    @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
-    async def warn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(view=None)
-        if not isinstance(interaction.channel, discord.TextChannel): return
-        await interaction.channel.send(f'{self.source.mention} передал {self.target.mention} {formatCoins(self.value)}', silent=True)
-
-class BalanceShareView(discord.ui.View):
-    def __init__(self, user: discord.Member | discord.User, value: int, *, timeout: float | None = 180):
-        super().__init__(timeout=timeout)
-        self.user = user
-        self.value = value
-    
-    @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
-    async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(view=None)
-        if not isinstance(interaction.channel, discord.TextChannel): return
-        await interaction.channel.send(f'Баланс игрока {self.user.mention}: {formatCoins(self.value)}', silent=True)

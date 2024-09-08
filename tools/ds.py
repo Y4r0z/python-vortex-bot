@@ -1,6 +1,7 @@
 import discord
 import settings
 import lib.vortex_api as Vortex
+import lib.steam_api as Steam
 
 logger = settings.logging.getLogger('discord')
 
@@ -106,18 +107,35 @@ async def tryGetOtherUser(user: discord.User | discord.Member, interaction: disc
 
 
 class ShareView(discord.ui.View):
-    def __init__(self, output: str, embed = None, *, timeout: float | None = 180):
+    def __init__(self, output: str, embed: discord.Embed = None, channel: discord.TextChannel = None, *, timeout: float | None = 180):
         super().__init__(timeout=timeout)
         self.output = output
         self.embed = embed
+        self.channel = channel
+        if self.channel is None: return
+        self.share.label = f'Поделиться в:  #[{self.channel.name}]'
     
     @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.primary)
     async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
         logger.info(f'Share button pressed {interaction.user.id} ({interaction.user.name})')
-        await interaction.response.send_message(self.output, embed=self.embed)
+        if self.channel:
+            await self.channel.send(self.output, embed=self.embed, silent=True)
+        else:
+            await interaction.channel.send(self.output, embed=self.embed)
+        await interaction.response.edit_message(view=None)
 
 
 def UserHasRole(member: discord.Member | discord.User, role_name: str) -> bool:
     if not isinstance(member, discord.Member): return False
     if not settings.IsRoleExists(role_name): return False
     return settings.Preferences[role_name] in [i.id for i in member.roles] 
+
+def createEmbedFromSteam(summary : Steam.PlayerSummary, title: str, description: str|None = None) -> discord.Embed:
+    embed = discord.Embed(
+            color=discord.Color.blurple(),
+            title=title
+        )
+    if description:
+        embed.description = description
+    embed.set_author(name=summary['personaname'], url=summary['profileurl'], icon_url=summary['avatar'])
+    return embed

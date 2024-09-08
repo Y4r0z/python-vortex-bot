@@ -39,7 +39,7 @@ class AcceptLinkView(discord.ui.View):
 class LinkModal(discord.ui.Modal, title='Интеграция со Steam'):
     steamid: discord.ui.TextInput = discord.ui.TextInput(
         style=discord.TextStyle.short,
-        label="Steam ID",
+        label="Steam ID / Ссылка на профиль",
         required=True, 
         placeholder='76561198086700922')
     
