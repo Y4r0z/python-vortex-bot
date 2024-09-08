@@ -66,8 +66,8 @@ def logToStr(log: Vortex.ChatLog, bsteam_id = False, btime = False, bserver = Fa
     time = datetime.datetime.fromisoformat(log['time'])
     timeStr = f"({time.strftime('%d.%m.%Y %H:%M:%S')})" if btime else ''
     serverStr = f'<{log["server"]}> ' if bserver else ''
-    steam_id = f' ({log["steamId"]})' if bsteam_id else ''
-    servTimeStr = f' -  *{serverStr} {timeStr}*' if bserver or btime else ''
+    steam_id = f' (*{log["steamId"]}*)' if bsteam_id else ''
+    servTimeStr = f'\n-# {serverStr} {timeStr}' if bserver or btime else ''
     return f'**{log['nickname']}**{steam_id}{teamStr}:  {log['text']} {servTimeStr}'
 
 class ModerCommands(commands.Cog):
