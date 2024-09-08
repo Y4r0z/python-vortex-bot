@@ -64,11 +64,11 @@ def logToStr(log: Vortex.ChatLog, bsteam_id = False, btime = False, bserver = Fa
     chatTeam = '(команде)' if log['chatTeam'] == 1 else ''
     teamStr = f' [{team} ({chatTeam})]' if bteam else ''
     time = datetime.datetime.fromisoformat(log['time'])
-    timeStr = f"({time.strftime('%d.%m.%Y %H:%M:%S')})" if btime else ''
+    timeStr = f"[{time.strftime('%d.%m.%y - %H:%M')}]" if btime else ''
     serverStr = f'<{log["server"]}> ' if bserver else ''
     steam_id = f' (*{log["steamId"]}*)' if bsteam_id else ''
-    servTimeStr = f'\n-# {serverStr} {timeStr}' if bserver or btime else ''
-    return f'**{log['nickname']}**{steam_id}{teamStr}:  {log['text']} {servTimeStr}'
+    servTimeStr = f'{serverStr} {timeStr}' if bserver or btime else ''
+    return f'**{log['nickname']}** {chatTeam}:  {log['text']}\n-# {steam_id}  {servTimeStr}'
 
 class ModerCommands(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -122,7 +122,7 @@ class ModerCommands(commands.Cog):
             await interaction.response.send_message('Ошибка получения логов чата.', ephemeral=True)
             logger.error(ex)
             return
-        result = '\n'.join([logToStr(i, True, True, True, False) for i in logs])
+        result = '\n'.join([logToStr(i, True, True, True, True) for i in logs])
         result = '(Логи не найдены)' if len(logs) == 0 else result if len(result) < 1930 else result[:1930]
         view = ShareView(output=f'{interaction.user.mention} поделился логами чата:\n{result}')
         await interaction.response.send_message(result, view=view, ephemeral=True)
