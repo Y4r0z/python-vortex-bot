@@ -41,7 +41,7 @@ class LinkModal(discord.ui.Modal, title='Интеграция со Steam'):
         style=discord.TextStyle.short,
         label="Steam ID / Ссылка на профиль",
         required=True, 
-        placeholder='76561198086700922')
+        placeholder='https://steamcommunity.com/profiles/76561198163385515/')
     
     async def on_submit(self, interaction: discord.Interaction):
         try:
