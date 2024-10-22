@@ -20,13 +20,13 @@ f"""
 3. {info['perks']['survivorPerk3']}
 4. {info['perks']['survivorPerk4']}
 **Перки зараженного**:
-Толстяк: {info['perks']['boomerPerk']}
-Курилщик: {info['perks']['smokerPerk']}
-Охотник: {info['perks']['hunterPerk']}
-Жокей: {info['perks']['jockeyPerk']}
-Плевальщица: {info['perks']['spitterPerk']}
-Громила: {info['perks']['chargerPerk']}
-Танк: {info['perks']['tankPerk']}
+{info['perks']['boomerPerk']}
+{info['perks']['smokerPerk']}
+{info['perks']['hunterPerk']}
+{info['perks']['jockeyPerk']}
+{info['perks']['spitterPerk']}
+{info['perks']['chargerPerk']}
+{info['perks']['tankPerk']}
 """ if info['perks'] else 'Отсутствуют'
     privileges = ('\n'.join(
         [f"{i['privilege']['name']} ({i['privilege']['description']}) - до {i['activeUntil'].replace('T', ' ')} UTC" \
@@ -43,7 +43,7 @@ f"""
         icon_url=info['steamInfo']['avatarmedium']
     )
     embed.add_field(
-        name='Перки', value=perks, inline=False
+        name='', value=perks, inline=False
     )
     embed.add_field(
         name='Привилегии', value=privileges, inline=False
