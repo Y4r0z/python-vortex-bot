@@ -148,8 +148,8 @@ def PrivilegeSetToString(ps: PrivilegeSet):
     if ps['vip']: lst.append('VIP')
     if ps['premium']: lst.append('Premium')
     if ps['legend']: lst.append('Legend')
-    if len(ps['customPrefix']) > 0: lst.append(f'Префикс в чате: [{ps['customPrefix']}]')
-    if len(ps['welcomePhrase']) > 0: lst.append(f'Привественная фраза: "{ps['welcomePhrase']}"')
+    if len(ps['customPrefix']) > 0: lst.append(f'Префикс в чате: [{ps["customPrefix"]}]')
+    if len(ps['welcomePhrase']) > 0: lst.append(f'Привественная фраза: "{ps["welcomePhrase"]}"')
     return '\n'.join(lst)
 
 BoostyPrivilegeUntil = '2050-01-01T00:00:00'

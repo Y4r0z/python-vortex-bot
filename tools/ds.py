@@ -16,7 +16,7 @@ async def tryGetUser(interaction: discord.Interaction) -> Vortex.User | None:
         await interaction.response.send_message(content='Вы не привязали ваш аккаунт к Steam, используйте команду `/link`, чтобы сделать это.', ephemeral=True)
         logger.info(f'User not found')
         return None
-    logger.info(f'User found: {link['user']["steamId"]}')
+    logger.info(f'User found: {link["user"]["steamId"]}')
     return link['user']
 
 
@@ -58,7 +58,7 @@ async def syncRole(member: discord.Member, role_id: int, privilege_id: int) -> b
     for found in privileges:
         if found['privilege']['id'] != privilege_id:
             continue
-        logger.info(f'[SyncRole: {member.id}]: Found privilege status ({found['id']})')
+        logger.info(f'[SyncRole: {member.id}]: Found privilege status ({found["id"]})')
         if found['activeUntil'] == Vortex.BoostyPrivilegeUntil:
             # Эта привелегия из Boosty
             if hasRole(member, role_id):
@@ -102,7 +102,7 @@ async def tryGetOtherUser(user: discord.User | discord.Member, interaction: disc
         await interaction.response.send_message(content='Пользователь не привязал аккаунт', ephemeral=True)
         logger.info(f'User not found')
         return None
-    logger.info(f'User found: {link['user']["steamId"]}')
+    logger.info(f'User found: {link["user"]["steamId"]}')
     return link['user']
 
 
