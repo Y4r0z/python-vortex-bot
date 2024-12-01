@@ -6,7 +6,6 @@ from tools.ds import checkAdmin
 
 logger = settings.logging.getLogger('discord')
 
-
 def roleFromId(role_id: int):
     return [discord.SelectDefaultValue(id=role_id, type=discord.SelectDefaultValueType.role)]
 
@@ -17,25 +16,28 @@ class CommandsSetupView(discord.ui.View):
             if settings.IsRoleExists('moder_role_id') else []
             
     @discord.ui.select(cls=discord.ui.RoleSelect, placeholder="Роль с доступом к модерским командам")
-    async def select_moder(self, interaction: discord.Interaction, select_item: discord.ui.RoleSelect):
+    async def select_moder(self, interaction: discord.Interaction, select_item: discord.ui.RoleSelect) -> None:
+        await interaction.response.defer(ephemeral=True)
         settings.Preferences['moder_role_id'] = select_item.values[0].id
-        await interaction.response.defer()
-
+        await interaction.message.edit(view=self)
 
     @discord.ui.button(label='Подтвердить', style=discord.ButtonStyle.success)
-    async def ok(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not settings.IsCommandsSetUp():
-            await interaction.response.send_message('Не все роли выбраны!', ephemeral=True)
-            return
-        settings.SavePreferences()
-        await interaction.response.edit_message(content='Настройки команд сохранены!', view=None)
-    
+    async def ok(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if not settings.IsCommandsSetUp():
+                await interaction.followup.send('Не все роли выбраны!', ephemeral=True)
+                return
+            settings.SavePreferences()
+            await interaction.message.edit(content='Настройки команд сохранены!', view=None)
+        except Exception as e:
+            logger.error(f'Error in commands setup confirmation: {str(e)}')
+            await interaction.followup.send('Произошла ошибка при сохранении настроек.', ephemeral=True)
 
     @discord.ui.button(label='Отмена', style=discord.ButtonStyle.danger)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content='Сохранение настроек команд отменено!', view=None)
-
-
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.defer(ephemeral=True)
+        await interaction.message.edit(content='Сохранение настроек команд отменено!', view=None)
 
 class CommandsSetupCommand(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -44,13 +46,20 @@ class CommandsSetupCommand(commands.Cog):
 
     @app_commands.command(name='setup_commands', description='Настраивает особые команды бота')
     @commands.has_permissions(administrator=True)
-    async def setupcommand(self, interaction: discord.Interaction):
-        if not (await checkAdmin(interaction)): return
-        logger.info(f'Commands setup command called by {interaction.user.id} ({interaction.user.name})')
-        view = CommandsSetupView()
-        text = 'Бот уже настроен. Вы можете спокойно отменить данное действие.' if settings.IsCommandsSetUp() else 'Бот не настроен, обязательно выберите роли.'
-        await interaction.response.send_message(content=text, view=view, ephemeral=True)
-
+    async def setupcommand(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if not (await checkAdmin(interaction)): return
+            logger.info(f'Commands setup command called by {interaction.user.id} ({interaction.user.name})')
+            view = CommandsSetupView()
+            text = 'Бот уже настроен. Вы можете спокойно отменить данное действие.' if settings.IsCommandsSetUp() else 'Бот не настроен, обязательно выберите роли.'
+            await interaction.followup.send(content=text, view=view, ephemeral=True)
+        except Exception as e:
+            logger.error(f'Error in setup_commands command: {str(e)}')
+            await interaction.followup.send(
+                'Произошла ошибка при настройке команд. Пожалуйста, попробуйте позже.',
+                ephemeral=True
+            )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(CommandsSetupCommand(bot), guild=discord.Object(id = settings.GUILD_ID))

@@ -48,25 +48,50 @@ class SourcebansCommands(commands.Cog):
         super().__init__()
     
     @app_commands.command(name='ban', description='Банит игрока на серверах')
-    async def ban(self, interaction: discord.Interaction, steam_id: str, reason: str, days: int, hours: int = 0, minutes: int = 0):
+    @discord.app_commands.describe(
+        steam_id='Steam ID игрока',
+        reason='Причина бана',
+        days='Количество дней',
+        hours='Количество часов',
+        minutes='Количество минут'
+    )
+    async def ban(
+        self,
+        interaction: discord.Interaction,
+        steam_id: str,
+        reason: str,
+        days: int,
+        hours: int = 0,
+        minutes: int = 0
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
         logger.info(f'Ban command called by {interaction.user.id} ({interaction.user.name})')
+
         if not UserHasRole(interaction.user, settings.RoleNames.Moder):
-            await interaction.response.send_message('У вас недостаточно прав.', ephemeral=True)
+            await interaction.followup.send('У вас недостаточно прав.', ephemeral=True)
             return
+
         duration = (minutes * 60) + (hours * 3600) + (days * 86400)
         if duration < 60:
-            await interaction.response.send_message('Минимальный период бана: 1 минута', ephemeral=True)
+            await interaction.followup.send('Минимальный период бана: 1 минута', ephemeral=True)
             return
+
         try:
             summary = await Steam.GetPlayerSummaries(steam_id)
+            if not summary:
+                raise ValueError("Player not found")
         except Exception as e:
-            logger.info(f'Ban: player not found. {e}')
-            await interaction.response.send_message('Игрок не найден', ephemeral=True)
+            logger.error(f'Ban: player not found. {e}')
+            await interaction.followup.send('Игрок не найден', ephemeral=True)
             return
-        embed = createEmbedFromSteam(summary, 'Подтвердите бан игрока',
-                                     f'Steam ID: {steam_id}\nПричина: {reason}\nДлительность (секунды): {duration}')
+
+        embed = createEmbedFromSteam(
+            summary,
+            'Подтвердите бан игрока',
+            f'Steam ID: {steam_id}\nПричина: {reason}\nДлительность (секунды): {duration}'
+        )
         view = AcceptBanView(summary=summary, duration=duration, reason=reason)
-        await interaction.response.send_message(embed=embed, ephemeral=True, view=view)
+        await interaction.followup.send(embed=embed, ephemeral=True, view=view)
         
     
 async def setup(bot: commands.Bot):

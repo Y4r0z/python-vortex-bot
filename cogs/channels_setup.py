@@ -19,22 +19,23 @@ class ChannelsSetupView(discord.ui.View):
         self.select_output.channel_types = [discord.ChannelType.text]
             
     @discord.ui.select(cls=discord.ui.ChannelSelect, placeholder="Канал в который будет отправлятся результат вывода некоторых команд")
-    async def select_output(self, interaction: discord.Interaction, select_item: discord.ui.ChannelSelect):
+    async def select_output(self, interaction: discord.Interaction, select_item: discord.ui.ChannelSelect) -> None:
+        await interaction.response.defer(ephemeral=True)  # добавляем defer
         settings.Preferences['bot_output_channel_id'] = select_item.values[0].id
         await interaction.response.edit_message(view=self)
 
-
     @discord.ui.button(label='Подтвердить', style=discord.ButtonStyle.success)
-    async def ok(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def ok(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.defer(ephemeral=True)  # добавляем defer
         if not settings.IsChannelsSetUp():
-            await interaction.response.send_message('Не все каналы выбраны!', ephemeral=True)
+            await interaction.followup.send('Не все каналы выбраны!', ephemeral=True)
             return
         settings.SavePreferences()
         await interaction.response.edit_message(content='Настройки каналов сохранены!', view=None)
-    
 
     @discord.ui.button(label='Отмена', style=discord.ButtonStyle.danger)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.defer(ephemeral=True)  # добавляем defer
         await interaction.response.edit_message(content='Сохранение настроек каналов отменено!', view=None)
 
 
@@ -46,12 +47,20 @@ class ChannelsSetupCommand(commands.Cog):
 
     @app_commands.command(name='setup_channels', description='Настраивает каналы бота')
     @commands.has_permissions(administrator=True)
-    async def setupcommand(self, interaction: discord.Interaction):
-        if not (await checkAdmin(interaction)): return
-        logger.info(f'Channels setup command called by {interaction.user.id} ({interaction.user.name})')
-        view = ChannelsSetupView()
-        text = 'Бот уже настроен. Вы можете спокойно отменить данное действие.' if settings.IsChannelsSetUp() else 'Бот не настроен, обязательно выберите каналы.'
-        await interaction.response.send_message(content=text, view=view, ephemeral=True)
+    async def setupcommand(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if not (await checkAdmin(interaction)): return
+            logger.info(f'Channels setup command called by {interaction.user.id} ({interaction.user.name})')
+            view = ChannelsSetupView()
+            text = 'Бот уже настроен. Вы можете спокойно отменить данное действие.' if settings.IsChannelsSetUp() else 'Бот не настроен, обязательно выберите каналы.'
+            await interaction.followup.send(content=text, view=view, ephemeral=True)
+        except Exception as e:
+            logger.error(f'Error in setup_channels command: {str(e)}')
+            await interaction.followup.send(
+                'Произошла ошибка при настройке каналов. Пожалуйста, попробуйте позже.',
+                ephemeral=True
+            )
 
 
 async def setup(bot: commands.Bot):

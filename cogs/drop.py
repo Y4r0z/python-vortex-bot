@@ -17,8 +17,9 @@ class DropShareView(discord.ui.View):
         self.value = value
     
     @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.blurple)
-    async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(view=None)
+    async def share(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.defer(ephemeral=True)
+        await interaction.message.edit(view=None, content="Вы поделились информацией о полученных коинах!")
         if not isinstance(interaction.channel, discord.TextChannel): return
         await interaction.channel.send(f'Игроку {self.user.mention} выпало {formatCoins(self.value)} в `/drop`', silent=True)
 
@@ -28,18 +29,19 @@ class DropCommand(commands.Cog):
         super().__init__()
 
     @app_commands.command(name='drop', description='Бесплатно выдает коины')
-    async def balance(self, interaction: discord.Interaction):
+    async def drop(self, interaction: discord.Interaction) -> None:  # переименовал из balance в drop
+        await interaction.response.defer(ephemeral=True)
         logger.info(f'Drop command called by {interaction.user.id} ({interaction.user.name})')
         
         # Получаем текущее время в UTC
         current_utc = datetime.datetime.now(timezone.utc)
-        # Создаем наивное время для сравнения
         current_naive = current_utc.replace(tzinfo=None)
         
         logger.info(f'Current UTC time: {current_utc.isoformat()}')
         
         user = await tryGetUser(interaction)
         if user is None:
+            await interaction.followup.send('Аккаунт не найден. Пожалуйста, привяжите ваш Steam аккаунт.')
             return
             
         try:
@@ -65,14 +67,14 @@ class DropCommand(commands.Cog):
             # Проверяем, можно ли получить награду
             if value == 0:
                 if current_naive < next_drop:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         f'Вы уже получали коины! Вы можете забрать больше коинов <t:{next_drop_timestamp}:R>', 
                         ephemeral=True
                     )
                 else:
                     # Если время прошло, но value = 0, возможно нужно обновить состояние
                     logger.warning(f'Drop time passed but value is 0. User: {user["steamId"]}, Next drop: {next_drop_str}')
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         'Пожалуйста, подождите несколько секунд и попробуйте снова.',
                         ephemeral=True
                     )
@@ -85,7 +87,7 @@ class DropCommand(commands.Cog):
                 channel=channel
             )
             
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f'Вы получили {formatCoins(value)}. Вы можете забрать больше коинов <t:{next_drop_timestamp}:R>',
                 ephemeral=True,
                 view=view
@@ -93,13 +95,13 @@ class DropCommand(commands.Cog):
                 
         except ValueError as e:
             logger.error(f'Error parsing time: {str(e)}')
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 'Произошла ошибка при обработке времени. Пожалуйста, сообщите администратору.',
                 ephemeral=True
             )
         except Exception as e:
             logger.error(f'Unexpected error: {str(e)}')
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 'Произошла непредвиденная ошибка. Пожалуйста, попробуйте позже.',
                 ephemeral=True
             )
