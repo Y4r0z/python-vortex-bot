@@ -165,6 +165,13 @@ async def _Post(href: str, data = None, supressErrors = False):
         async with session.post(href, headers=headers, json=data) as response:
             if response.status // 100 != 2 and not supressErrors: raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
             return await response.json()
+        
+async def _Put(href: str, data = None, supressErrors = False):
+    async with aiohttp.ClientSession() as session:
+        async with session.put(href, headers=headers, json=data) as response:
+            if response.status // 100 != 2 and not supressErrors: 
+                raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
+            return await response.json()
 
 async def _Delete(href: str):
     async with aiohttp.ClientSession() as session:
@@ -270,3 +277,33 @@ async def SbBanPlayer(steam_id: str, duration: int, reason: str):
         else:
             raise e
     return r
+
+class PlayerMusic(TypedDict):
+    id: int
+    soundname: str
+    path: str
+    url: str | None
+    playcount: int
+    updated_at: str
+    user: User
+
+class PlayerMusicInput(TypedDict):
+    soundname: str
+    path: str
+    url: str | None
+
+async def GetPlayerTrack(steam_id: str) -> PlayerMusic:
+    """Получает информацию о треке пользователя"""
+    return await _Get(f'{host}/music/track/{steam_id}')
+
+async def UpdatePlayerTrack(steam_id: str, track_data: PlayerMusicInput) -> PlayerMusic:
+    """Обновляет или создает трек пользователя"""
+    return await _Put(f'{host}/music/track/{steam_id}', data=track_data)
+
+async def GetTopTracks(limit: int = 10) -> List[PlayerMusic]:
+    """Получает список самых популярных треков"""
+    return await _Get(f'{host}/music/top?limit={limit}')
+
+async def DeletePlayerTrack(steam_id: str) -> StatusCode:
+    """Удаляет трек пользователя"""
+    return await _Delete(f'{host}/music/track/{steam_id}')

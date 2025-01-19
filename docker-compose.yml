@@ -1,5 +1,4 @@
 version: '3.4'
-
 services:
   pythonvortexbot:
     image: pythonvortexbot
@@ -11,4 +10,6 @@ services:
     volumes:
       - ./logs:/app/logs:z
       - ./preferences:/app/preferences:z
+      - ./temp:/app/temp:z
+      - /var/www/html/fastdl/sound/ui:/var/www/html/fastdl/sound/ui:z
     restart: always

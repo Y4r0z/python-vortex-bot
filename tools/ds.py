@@ -202,11 +202,28 @@ async def syncAllRoles(member: discord.Member | discord.User) -> None:
         return
         
     try:
+        # Синхронизация стандартных ролей
         if \
             await syncRole(member, settings.Preferences['vip_role_id'], Vortex.PrivilegeTypeId.Vip) or \
             await syncRole(member, settings.Preferences['premium_role_id'], Vortex.PrivilegeTypeId.Premium) or \
             await syncRole(member, settings.Preferences['legend_role_id'], Vortex.PrivilegeTypeId.Legend):
             return
+
+        # Проверка и выдача связанных ролей
+        if 'linked_roles' in settings.Preferences:
+            for primary_role_id, secondary_role_id in settings.Preferences['linked_roles'].items():
+                if hasRole(member, int(primary_role_id)):
+                    secondary_role = member.guild.get_role(secondary_role_id)
+                    if secondary_role and secondary_role not in member.roles:
+                        await member.add_roles(
+                            secondary_role,
+                            reason="Автоматическая выдача связанной роли при синхронизации"
+                        )
+                        logger.info(
+                            f'Added linked role {secondary_role_id} to '
+                            f'user {member.id} during sync'
+                        )
+
     except Exception as e:
         logger.error(f'Error syncing roles for {member.id}: {str(e)}')
 
