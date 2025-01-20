@@ -32,26 +32,26 @@ class MusicPlatform:
 class TrackUtils:
     MUSIC_PLATFORMS = {
         'youtube': MusicPlatform(
-            name="YouTube Music",
-            emoji="🎵",
+            name="YouTube",
+            emoji="<:youtubemusic:1330994676471173201>",
             url_template="https://music.youtube.com/watch?v={query}",
             domain="music.youtube.com"
         ),
         'spotify': MusicPlatform(
             name="Spotify",
-            emoji="🟢",
+            emoji="<:spotify:1330994601624076298>",
             url_template="https://open.spotify.com/search/{query}",
             domain="spotify.com"
         ),
         'yandex': MusicPlatform(
-            name="Yandex Music",
-            emoji="🎧",
+            name="Yandex",
+            emoji="<:yandexmusic:1330994641641672815>",
             url_template="https://music.yandex.ru/search?text={query}",
             domain="music.yandex"
         ),
         'apple': MusicPlatform(
-            name="Apple Music",
-            emoji="🍎",
+            name="Apple",
+            emoji="<:applemusic:1330996067117957220>",
             url_template="https://music.apple.com/search?term={query}",
             domain="music.apple.com"
         )
@@ -180,6 +180,8 @@ class NextSeasonTrackManager:
         except Exception as e:
             logger.error(f"Error getting current track: {str(e)}")
             return None
+        
+
 
 async def get_track_info_from_url(url: str) -> Optional[Tuple[str, str]]:
     """
@@ -354,26 +356,32 @@ class TrackPreviewView(discord.ui.View):
             
             # Создаем эмбеды
             confirm_embed = TrackUtils.create_track_embed(
-                title="✨ Любимый трек добавлен в очередь!",
+                title="✨ Трек появится в новом сезоне!",
                 track_name=track_title,
-                thumbnail_url=self.track['thumbnails'][0]['url'],
-                description=f"{track_url}\n\n*Трек будет обработан в фоновом режиме*"
+                thumbnail_url=self.track['thumbnails'][0]['url']
             )
             confirm_embed.set_footer(text=f"Выбрано {interaction.user.name}")
 
+            # Генерация ссылок на платформы
             platform_links = TrackUtils.get_platform_links(track_title)
-            public_embed = TrackUtils.create_track_embed(
+
+            # Создаем public_embed вручную
+            public_embed = discord.Embed(
                 title="🎵 Новый трек на следующий сезон!",
-                track_name=track_title,
-                description=f"{interaction.user.mention} выбрал:\n{' • '.join(platform_links)}",
-                thumbnail_url=self.track['thumbnails'][0]['url']
+                color=EMBED_COLOR
             )
-            
+            public_embed.description = (
+                f"**{track_title}**\n\n"  # Добавляем название трека в начало описания
+                f"Выбрал игрок {interaction.user.mention}\n\n{' • '.join(platform_links)}"
+            )
+            public_embed.set_thumbnail(url=self.track['thumbnails'][0]['url'])
+
             # Отправляем сообщения
             await interaction.response.edit_message(embed=confirm_embed, view=None)
             await interaction.channel.send(embed=public_embed)
-            
+
             logger.info(f'Added track for next season for user {steam_id} ({interaction.user.name}): {track_title}')
+
             
         except Exception as e:
             logger.error(f'Error saving track choice: {str(e)}')
@@ -394,7 +402,7 @@ class TrackPreviewView(discord.ui.View):
 class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
     query = discord.ui.TextInput(
         label="Название или ссылка на трек",
-        placeholder="Введите название или вставьте ссылку из любого музыкального сервиса",
+        placeholder="Название или ссылка из любого сервиса",
         required=True,
         max_length=200,
         style=discord.TextStyle.short
@@ -457,6 +465,45 @@ class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
 
+def load_role_ids():
+    """Загружает ID ролей из конфигурационного файла"""
+    try:
+        with open('preferences/ids.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f'Error loading role IDs: {str(e)}')
+        return {}
+
+def check_roles():
+    """Декоратор для проверки ролей пользователя"""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        # Проверяем, является ли пользователь администратором
+        if interaction.user.guild_permissions.administrator:
+            return True
+            
+        role_ids = load_role_ids()
+        allowed_roles = {
+            role_ids.get('moder_role_id'),
+            role_ids.get('legend_role_id')
+        }
+        
+        # Убираем None из множества
+        allowed_roles = {role_id for role_id in allowed_roles if role_id is not None}
+        
+        # Проверяем наличие разрешенных ролей у пользователя
+        user_roles = {role.id for role in interaction.user.roles}
+        if any(role_id in user_roles for role_id in allowed_roles):
+            return True
+            
+        # Если нет нужных ролей, отправляем сообщение об ошибке
+        await interaction.response.send_message(
+            "У вас недостаточно прав для использования этой команды.",
+            ephemeral=True
+        )
+        return False
+        
+    return app_commands.check(predicate)
+
 class MyTrackCommand(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -467,6 +514,7 @@ class MyTrackCommand(commands.Cog):
         name='mytrack',
         description='🎵 Установить любимый трек (поддерживает ссылки из разных сервисов)'
     )
+    @check_roles()
     async def mytrack(self, interaction: discord.Interaction) -> None:
         """Обработчик команды /mytrack"""
         logger.info(f'MyTrack command called by {interaction.user.id} ({interaction.user.name})')
@@ -480,12 +528,13 @@ class MyTrackCommand(commands.Cog):
                 return
                 
             steam_id = vortex_user['steamId']
-            current_track = await self.track_manager.get_current_track(steam_id)
-
-            if current_track:
+            try:
+                current_track = await self.track_manager.get_current_track(steam_id)
                 await self.show_current_track(interaction, steam_id)
-            else:
-                await self.show_no_track_message(interaction)
+            except Exception as api_error:
+                # В случае ошибки API (включая 404) показываем трек следующего сезона
+                logger.warning(f'API error while getting current track for {steam_id}: {str(api_error)}')
+                await self.show_next_season_track(interaction, steam_id)
                 
         except Exception as e:
             logger.error(f'Unexpected error in mytrack command: {str(e)}')
@@ -498,33 +547,43 @@ class MyTrackCommand(commands.Cog):
     
     async def show_current_track(self, interaction: discord.Interaction, steam_id: str) -> None:
         """Показывает текущий трек пользователя"""
-        current_track = await self.track_manager.get_current_track(steam_id)
-        if not current_track:
-            await self.show_no_track_message(interaction)
-            return
+        try:
+            current_track = await self.track_manager.get_current_track(steam_id)
+            if not current_track:
+                await self.show_next_season_track(interaction, steam_id)
+                return
 
-        # Получаем thumbnail для YouTube Music
-        thumbnail_url = await TrackUtils.get_youtube_thumbnail(current_track.get('url', ''))
+            # Получаем thumbnail для YouTube Music
+            thumbnail_url = await TrackUtils.get_youtube_thumbnail(current_track.get('url', ''))
 
-        # Создаем эмбед
-        platform_links = TrackUtils.get_platform_links(current_track['soundname'])
-        embed = TrackUtils.create_track_embed(
-            title="🎵 Ваш текущий трек",
-            track_name=current_track['soundname'],
-            thumbnail_url=thumbnail_url,
-            description=f"Воспроизведений: **{current_track['playcount']:,}**",
-            **{"Слушать:": " • ".join(platform_links)} if current_track.get('url') else {}
-        )
+            # Создаем эмбед
+            platform_links = TrackUtils.get_platform_links(current_track['soundname'])
+            
+            embed = discord.Embed(color=EMBED_COLOR)
+            embed.description = (
+                f"🎵 **Ваш текущий трек**\n"
+                f"### {current_track['soundname']}\n"
+                f"Прослушиваний: **{current_track.get('playcount', 0):,}**\n\n"
+                f"{' • '.join(platform_links)}"
+            )
+            
+            if thumbnail_url:
+                embed.set_thumbnail(url=thumbnail_url)
 
-        # Создаем навигационные кнопки
-        view = TrackUtils.create_navigation_view([
-            ("Трек следующего сезона", "⏭️", discord.ButtonStyle.secondary, 
-             lambda i: self.show_next_season_track(i, steam_id)),
-            ("Поделиться", "📢", discord.ButtonStyle.success,
-             lambda i: self.share_track(i, embed, current_track))
-        ])
+            # Создаем навигационные кнопки
+            view = TrackUtils.create_navigation_view([
+                ("Трек следующего сезона", "⏭️", discord.ButtonStyle.secondary, 
+                 lambda i: self.show_next_season_track(i, steam_id)),
+                ("Поделиться", "📢", discord.ButtonStyle.success,
+                 lambda i: self.share_track(i, embed, current_track))
+            ])
 
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            # В случае любой ошибки показываем трек следующего сезона
+            logger.warning(f'Error showing current track for {steam_id}: {str(e)}')
+            await self.show_next_season_track(interaction, steam_id)
 
     async def show_next_season_track(self, interaction: discord.Interaction, steam_id: str) -> None:
         """Показывает трек пользователя на следующий сезон"""
@@ -535,9 +594,10 @@ class MyTrackCommand(commands.Cog):
             if can_set:
                 await self.show_no_track_message(interaction, is_next_season=True)
             else:
-                embed = TrackUtils.create_track_embed(
-                    title="⏭️ Трек следующего сезона",
-                    track_name="Установка трека на следующий сезон доступна с 20 по 30 число каждого месяца."
+                embed = discord.Embed(color=EMBED_COLOR)
+                embed.description = (
+                    "⏭️ **Трек следующего сезона**\n"
+                    "### Установка трека на следующий сезон доступна с 20 по 30 число каждого месяца."
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
             return
@@ -547,12 +607,17 @@ class MyTrackCommand(commands.Cog):
         
         # Создаем эмбед
         platform_links = TrackUtils.get_platform_links(next_track['soundname'])
-        embed = TrackUtils.create_track_embed(
-            title="⏭️ Ваш трек на следующий сезон",
-            track_name=next_track['soundname'],
-            thumbnail_url=thumbnail_url,
-            **{"Слушать:": " • ".join(platform_links)}
+        
+        embed = discord.Embed(color=EMBED_COLOR)
+        embed.description = (
+            f"⏭️ **Ваш трек на следующий сезон**\n"
+            f"### {next_track['soundname']}\n\n"
+            f"{' • '.join(platform_links)}"
         )
+        
+        if thumbnail_url:
+            embed.set_thumbnail(url=thumbnail_url)
+            
         embed.set_footer(text="Вы можете изменить трек, нажав кнопку ниже")
         
         # Создаем кнопки
@@ -561,8 +626,6 @@ class MyTrackCommand(commands.Cog):
              lambda i: self._show_track_search_modal(i)),
             ("Текущий трек", "◀️", discord.ButtonStyle.secondary,
              lambda i: self.show_current_track(i, steam_id)),
-            ("Поделиться", "📢", discord.ButtonStyle.success,
-             lambda i: self.share_track(i, embed, next_track))
         ])
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -575,9 +638,11 @@ class MyTrackCommand(commands.Cog):
     async def show_no_track_message(self, interaction: discord.Interaction, is_next_season: bool = False) -> None:
         """Показывает сообщение о том, что трек не установлен"""
         title = "⏭️ Трек следующего сезона" if is_next_season else "🎵 Любимый трек"
-        embed = TrackUtils.create_track_embed(
-            title=title,
-            track_name="У вас пока нет установленного трека. Нажмите кнопку ниже, чтобы добавить его!"
+        
+        embed = discord.Embed(color=EMBED_COLOR)
+        embed.description = (
+            f"**{title}**\n"
+            f"### У вас пока нет установленного трека. Нажмите кнопку ниже, чтобы добавить его!"
         )
         
         view = TrackUtils.create_navigation_view([
@@ -596,15 +661,16 @@ class MyTrackCommand(commands.Cog):
         """Делится треком в публичном канале"""
         platform_links = TrackUtils.get_platform_links(track_data['soundname'])
         
-        public_embed = TrackUtils.create_track_embed(
-            title="🎵 Любимый трек!",
-            track_name=track_data['soundname'],
-            description=f"{interaction.user.mention} слушает:\n" +
-                       (f"Количество прослушиваний: **{track_data['playcount']:,}**\n\n" 
-                        if 'playcount' in track_data else "") +
-                       f"{' • '.join(platform_links)}",
-            thumbnail_url=source_embed.thumbnail.url if source_embed.thumbnail else None
+        public_embed = discord.Embed(color=EMBED_COLOR)
+        public_embed.description = (
+            f"🎵 **Трек игрока** {interaction.user.mention}\n"
+            f"### {track_data['soundname']}\n"
+            f"Прослушиваний: **{track_data.get('playcount', 0)}**\n\n"
+            f"{' • '.join(platform_links)}"
         )
+        
+        if source_embed.thumbnail:
+            public_embed.set_thumbnail(url=source_embed.thumbnail.url)
         
         await interaction.response.send_message(embed=public_embed)
 

@@ -44,6 +44,34 @@ class MusicConverterCog(commands.Cog):
         """Преобразует название трека в безопасное имя файла"""
         safe_name = re.sub(r'[^a-zA-Z0-9]', '', title.lower())
         return f"{safe_name}.mp3"
+    
+    async def save_track_data(self, steam_id: str, track_data: dict) -> bool:
+        """Сохраняет данные трека в JSON файл"""
+        try:
+            # Создаем директорию если её нет
+            self.tracks_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Загружаем существующие данные
+            data = {}
+            if self.tracks_file.exists():
+                with open(self.tracks_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    if content.strip():
+                        data = json.loads(content)
+
+            # Обновляем данные
+            data[steam_id] = track_data
+
+            # Сохраняем обновленные данные
+            with open(self.tracks_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+
+            logger.info(f"Successfully saved track data for {steam_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving track data: {str(e)}")
+            return False
 
     async def process_queue(self):
         """Фоновый обработчик очереди конвертации"""
