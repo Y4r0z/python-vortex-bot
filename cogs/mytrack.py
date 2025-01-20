@@ -1,17 +1,113 @@
 import discord
-import settings
-from discord import app_commands
-from discord.ext import commands
-from ytmusicapi import YTMusic
 import json
 import os
 import re
+from datetime import datetime
+from typing import Optional, Dict, Any
 from urllib.parse import urlparse, quote
 import requests
+from discord import app_commands
+from discord.ext import commands
+from ytmusicapi import YTMusic
+from lib.vortex_api import GetPlayerTrack, UpdatePlayerTrack, PlayerMusic, PlayerMusicInput
 from tools.ds import tryGetOtherUser
+import settings
 
-logger = settings.logging.getLogger('discord')
+logger = settings.logging.getLogger("discord")
 EMBED_COLOR = discord.Color.from_rgb(88, 101, 242)  # Discord Blurple
+
+class NextSeasonTrackManager:
+    def __init__(self, bot: commands.Bot):
+        self.tracks_file = 'preferences/tracks.json'
+        self.bot = bot
+        
+    async def can_set_track(self) -> bool:
+        """Проверяет, можно ли сейчас установить трек на следующий сезон"""
+        now = datetime.utcnow()
+        return 20 <= now.day <= 30
+        
+    async def get_next_season_track(self, steam_id: str) -> Optional[Dict[str, Any]]:
+        """Получает трек пользователя на следующий сезон"""
+        if not os.path.exists(self.tracks_file):
+            return None
+            
+        try:
+            with open(self.tracks_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get(steam_id)
+        except (json.JSONDecodeError, FileNotFoundError):
+            return None
+            
+    async def set_next_season_track(self, steam_id: str, track_data: Dict[str, Any]) -> bool:
+        """Устанавливает трек пользователя на следующий сезон"""
+        if not await self.can_set_track():
+            return False
+            
+        try:
+            # Создаем директорию если её нет
+            os.makedirs(os.path.dirname(self.tracks_file), exist_ok=True)
+            
+            # Читаем существующие данные или создаем новый словарь
+            data = {}
+            try:
+                if os.path.exists(self.tracks_file):
+                    with open(self.tracks_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        if content.strip():
+                            data = json.loads(content)
+            except json.JSONDecodeError:
+                data = {}
+            
+            # Добавляем или обновляем трек пользователя
+            data[steam_id] = {
+                "soundname": track_data["soundname"],
+                "path": track_data.get("path", ""),
+                "url": track_data["url"],
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # Сохраняем обновленные данные
+            with open(self.tracks_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+                
+            return True
+        except Exception as e:
+            logger.error(f"Error saving next season track: {str(e)}")
+            return False
+            
+    async def apply_season_tracks(self) -> bool:
+        """Применяет треки следующего сезона в API (вызывается 1 числа)"""
+        if datetime.utcnow().day != 1:
+            return False
+            
+        try:
+            if not os.path.exists(self.tracks_file):
+                return True
+                
+            with open(self.tracks_file, 'r', encoding='utf-8') as f:
+                tracks = json.load(f)
+                
+            for steam_id, track in tracks.items():
+                track_input = PlayerMusicInput(
+                    soundname=track["soundname"],
+                    path=track.get("path", ""),
+                    url=track.get("url")
+                )
+                await UpdatePlayerTrack(steam_id, track_input)
+                
+            # Очищаем файл после успешного применения
+            os.remove(self.tracks_file)
+            return True
+        except Exception as e:
+            logger.error(f"Error applying season tracks: {str(e)}")
+            return False
+            
+    async def get_current_track(self, steam_id: str) -> Optional[PlayerMusic]:
+        """Получает текущий трек пользователя из API"""
+        try:
+            return await GetPlayerTrack(steam_id)
+        except Exception:
+            return None
 
 async def get_track_info_from_url(url: str) -> tuple[str, str] | None:
     """
@@ -19,9 +115,13 @@ async def get_track_info_from_url(url: str) -> tuple[str, str] | None:
     Returns: tuple(title, artist) или None
     """
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
         response = requests.get(url, headers=headers)
         
+        # Обработка YouTube Music
         if 'music.youtube.com' in url:
             video_id = url.split('v=')[1].split('&')[0]
             ytmusic = YTMusic()
@@ -29,23 +129,35 @@ async def get_track_info_from_url(url: str) -> tuple[str, str] | None:
             if track_info and 'videoDetails' in track_info:
                 return track_info['videoDetails']['title'], track_info['videoDetails']['author']
         
-        title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
-        if not title_match:
-            return None
+        # Обработка Spotify
+        elif 'spotify.com' in url:
+            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
+            artist_match = re.search(r'<meta property="og:description" content="([^"]+)"', response.text)
             
-        title = title_match.group(1)
+            if title_match and artist_match:
+                title = title_match.group(1)
+                artist = artist_match.group(1).split('·')[0].strip()
+                return title, artist
         
-        if ' — ' in title:  # Yandex Music
-            artist, track = title.split(' — ', 1)
-        elif ' – ' in title:  # Некоторые другие сервисы
-            artist, track = title.split(' – ', 1)
-        elif ' - ' in title:  # Общий случай
-            artist, track = title.split(' - ', 1)
+        # Обработка других сервисов
         else:
-            return title, ""
+            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
+            if not title_match:
+                return None
+                
+            title = title_match.group(1)
             
-        return track.strip(), artist.strip()
-        
+            if ' — ' in title:  # Yandex Music
+                artist, track = title.split(' — ', 1)
+            elif ' – ' in title:  # Некоторые другие сервисы
+                artist, track = title.split(' – ', 1)
+            elif ' - ' in title:  # Общий случай
+                artist, track = title.split(' - ', 1)
+            else:
+                return title, ""
+                
+            return track.strip(), artist.strip()
+            
     except Exception as e:
         logger.error(f'Error getting track info from URL: {str(e)}')
         return None
@@ -93,9 +205,13 @@ class TrackPreviewView(discord.ui.View):
         self.tracks = tracks
         self.ytmusic = ytmusic
         self.bot = bot
+        self.track_manager = NextSeasonTrackManager('data/next_season_tracks.json')
         self.add_platform_buttons()
         
     def add_platform_buttons(self):
+        search_query = f"{self.track['title']} {self.track['artists'][0]['name']}"
+        encoded_query = quote(search_query)
+        
         # YouTube Music кнопка
         yt_url = f"https://music.youtube.com/watch?v={self.track['videoId']}"
         yt_button = discord.ui.Button(
@@ -106,9 +222,6 @@ class TrackPreviewView(discord.ui.View):
             row=1
         )
         self.add_item(yt_button)
-        
-        search_query = f"{self.track['title']} {self.track['artists'][0]['name']}"
-        encoded_query = quote(search_query)
         
         # Spotify кнопка
         spotify_button = discord.ui.Button(
@@ -245,14 +358,14 @@ class TrackPreviewView(discord.ui.View):
             encoded_query = quote(search_query)
             
             links = [
-                f"[🎵 YouTube]({track_url})",
+                f"[🎵 YouTube Music]({track_url})",
                 f"[🟢 Spotify](https://open.spotify.com/search/{encoded_query})",
-                f"[🎧 Yandex](https://music.yandex.ru/search?text={encoded_query})",
-                f"[🍎 Apple](https://music.apple.com/search?term={encoded_query})"
+                f"[🎧 Yandex Music](https://music.yandex.ru/search?text={encoded_query})",
+                f"[🍎 Apple Music](https://music.apple.com/search?term={encoded_query})"
             ]
             
             public_embed = discord.Embed(
-                title="🎵 Новый любимый трек!",
+                title="🎵 Новый трек на следующий сезон!",
                 description=f"{interaction.user.mention} выбрал:\n**{track_title}**\n\n{' • '.join(links)}",
                 color=EMBED_COLOR
             )
@@ -260,7 +373,7 @@ class TrackPreviewView(discord.ui.View):
             
             await interaction.channel.send(embed=public_embed)
             
-            logger.info(f'Added track to queue for user {steam_id} ({interaction.user.name}): {track_title}')
+            logger.info(f'Added track for next season for user {steam_id} ({interaction.user.name}): {track_title}')
             
         except Exception as e:
             logger.error(f'Error saving track choice: {str(e)}')
@@ -358,7 +471,212 @@ class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
 class MyTrackCommand(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self.track_manager = NextSeasonTrackManager(bot)
         super().__init__()
+
+    async def show_current_track(self, interaction: discord.Interaction, steam_id: str) -> None:
+        """Показывает текущий трек пользователя"""
+        current_track = await self.track_manager.get_current_track(steam_id)
+        if not current_track:
+            await self.show_no_track_message(interaction)
+            return
+            
+        # Создаем эмбед с текущим треком
+        embed = discord.Embed(
+            title="🎵 Ваш текущий трек",
+            description=f"**{current_track['soundname']}**\n\n"
+                       f"Воспроизведений: **{current_track['playcount']:,}**",
+            color=EMBED_COLOR
+        )
+        
+        # Добавляем картинку, если доступна
+        if current_track.get('url') and 'youtube.com' in current_track['url']:
+            try:
+                ytmusic = YTMusic()
+                video_id = current_track['url'].split('v=')[1].split('&')[0]
+                track_info = ytmusic.get_song(video_id)
+                if track_info and 'videoDetails' in track_info:
+                    thumbnail = track_info['videoDetails']['thumbnail']['thumbnails'][-1]['url']
+                    embed.set_thumbnail(url=thumbnail)
+            except Exception as e:
+                logger.error(f'Error getting track thumbnail: {str(e)}')
+        
+        # Добавляем ссылки на музыкальные сервисы
+        if current_track.get('url'):
+            search_query = quote(current_track['soundname'])
+            links = [
+                f"[🎵 YouTube Music]({current_track['url']})",
+                f"[🟢 Spotify](https://open.spotify.com/search/{search_query})",
+                f"[🎧 Yandex Music](https://music.yandex.ru/search?text={search_query})",
+                f"[🍎 Apple Music](https://music.apple.com/search?term={search_query})"
+            ]
+            embed.add_field(name="Слушать:", value=" • ".join(links), inline=False)
+            
+        # Создаем кнопки
+        view = discord.ui.View()
+        
+        # Кнопка для следующего сезона
+        next_season_button = discord.ui.Button(
+            label="Трек следующего сезона",
+            style=discord.ButtonStyle.secondary,
+            emoji="⏭️",
+            row=1
+        )
+        async def next_season_callback(inter: discord.Interaction):
+            await self.show_next_season_track(inter, steam_id)
+        next_season_button.callback = next_season_callback
+        view.add_item(next_season_button)
+        
+        # Кнопка для публичного показа
+        share_button = discord.ui.Button(
+            label="Поделиться",
+            style=discord.ButtonStyle.success,
+            emoji="📢",
+            row=1
+        )
+        async def share_callback(inter: discord.Interaction):
+            public_embed = discord.Embed(
+                title="🎵 Любимый трек!",
+                description=f"{inter.user.mention} слушает:\n**{current_track['soundname']}**\n\n"
+                           f"Количество прослушиваний: **{current_track['playcount']:,}**\n\n"
+                           f"{' • '.join(links)}",
+                color=EMBED_COLOR
+            )
+            if embed.thumbnail:
+                public_embed.set_thumbnail(url=embed.thumbnail.url)
+            await inter.response.send_message(embed=public_embed)
+            
+        share_button.callback = share_callback
+        view.add_item(share_button)
+        
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    async def show_next_season_track(self, interaction: discord.Interaction, steam_id: str) -> None:
+        """Показывает трек пользователя на следующий сезон"""
+        next_track = await self.track_manager.get_next_season_track(steam_id)
+        
+        if not next_track:
+            can_set = await self.track_manager.can_set_track()
+            if can_set:
+                await self.show_no_track_message(interaction, is_next_season=True)
+            else:
+                embed = discord.Embed(
+                    title="⏭️ Трек следующего сезона",
+                    description="Установка трека на следующий сезон доступна с 20 по 30 число каждого месяца.",
+                    color=EMBED_COLOR
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+            
+        # Создаем эмбед с треком следующего сезона
+        embed = discord.Embed(
+            title="⏭️ Ваш трек на следующий сезон",
+            description=f"**{next_track['soundname']}**",
+            color=EMBED_COLOR
+        )
+        
+        # Получаем thumbnail, если это YouTube Music
+        if next_track.get('url') and 'youtube.com' in next_track['url']:
+            try:
+                ytmusic = YTMusic()
+                video_id = next_track['url'].split('v=')[1].split('&')[0]
+                track_info = ytmusic.get_song(video_id)
+                if track_info and 'videoDetails' in track_info:
+                    thumbnail = track_info['videoDetails']['thumbnail']['thumbnails'][-1]['url']
+                    embed.set_thumbnail(url=thumbnail)
+            except Exception as e:
+                logger.error(f'Error getting track thumbnail: {str(e)}')
+        
+        search_query = quote(next_track['soundname'])
+        links = [
+            f"[🎵 YouTube Music]({next_track['url']})",
+            f"[🟢 Spotify](https://open.spotify.com/search/{search_query})",
+            f"[🎧 Yandex Music](https://music.yandex.ru/search?text={search_query})",
+            f"[🍎 Apple Music](https://music.apple.com/search?term={search_query})"
+        ]
+        embed.add_field(name="Слушать:", value=" • ".join(links), inline=False)
+        embed.set_footer(text="Вы можете изменить трек, нажав кнопку ниже")
+        
+        # Создаем кнопки
+        view = discord.ui.View()
+        
+        # Кнопка изменения трека
+        change_button = discord.ui.Button(
+            label="Изменить трек",
+            style=discord.ButtonStyle.primary,
+            emoji="🔄",
+            row=1
+        )
+        
+        async def change_callback(inter: discord.Interaction):
+            modal = TrackSearchModal(self.bot)
+            await inter.response.send_modal(modal)
+            
+        change_button.callback = change_callback
+        view.add_item(change_button)
+        
+        # Кнопка возврата к текущему треку
+        back_button = discord.ui.Button(
+            label="Текущий трек",
+            style=discord.ButtonStyle.secondary,
+            emoji="◀️",
+            row=1
+        )
+        
+        async def back_callback(inter: discord.Interaction):
+            await self.show_current_track(inter, steam_id)
+            
+        back_button.callback = back_callback
+        view.add_item(back_button)
+        
+        # Кнопка для публичного показа
+        share_button = discord.ui.Button(
+            label="Поделиться",
+            style=discord.ButtonStyle.success,
+            emoji="📢",
+            row=1
+        )
+        
+        async def share_callback(inter: discord.Interaction):
+            public_embed = discord.Embed(
+                title="⏭️ Трек на следующий сезон!",
+                description=f"{inter.user.mention} выбрал:\n**{next_track['soundname']}**\n\n"
+                           f"{' • '.join(links)}",
+                color=EMBED_COLOR
+            )
+            if embed.thumbnail:
+                public_embed.set_thumbnail(url=embed.thumbnail.url)
+            await inter.response.send_message(embed=public_embed)
+            
+        share_button.callback = share_callback
+        view.add_item(share_button)
+        
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    async def show_no_track_message(self, interaction: discord.Interaction, is_next_season: bool = False) -> None:
+        """Показывает сообщение о том, что трек не установлен"""
+        title = "⏭️ Трек следующего сезона" if is_next_season else "🎵 Любимый трек"
+        embed = discord.Embed(
+            title=title,
+            description="У вас пока нет установленного трека. Нажмите кнопку ниже, чтобы добавить его!",
+            color=EMBED_COLOR
+        )
+        
+        view = discord.ui.View()
+        search_button = discord.ui.Button(
+            label="Искать трек",
+            style=discord.ButtonStyle.primary,
+            emoji="🔍"
+        )
+        
+        async def search_button_callback(inter: discord.Interaction):
+            modal = TrackSearchModal(self.bot)
+            await inter.response.send_modal(modal)
+            
+        search_button.callback = search_button_callback
+        view.add_item(search_button)
+        
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(
         name='mytrack',
@@ -367,9 +685,24 @@ class MyTrackCommand(commands.Cog):
     async def mytrack(self, interaction: discord.Interaction) -> None:
         logger.info(f'MyTrack command called by {interaction.user.id} ({interaction.user.name})')
         try:
-            modal = TrackSearchModal(self.bot)
-            await interaction.response.send_modal(modal)
+            # Получаем Steam ID пользователя
+            vortex_user = await tryGetOtherUser(interaction.user, interaction)
+            if not vortex_user:
+                await interaction.response.send_message(
+                    "Для использования этой команды необходимо связать свой Steam аккаунт. Используйте команду /link",
+                    ephemeral=True
+                )
+                return
+                
+            steam_id = vortex_user['steamId']
             
+            # Проверяем текущий трек
+            current_track = await self.track_manager.get_current_track(steam_id)
+            if current_track:
+                await self.show_current_track(interaction, steam_id)
+            else:
+                await self.show_no_track_message(interaction)
+                
         except Exception as e:
             logger.error(f'Unexpected error in mytrack command: {str(e)}')
             embed = discord.Embed(

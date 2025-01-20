@@ -156,14 +156,16 @@ BoostyPrivilegeUntil = '2050-01-01T00:00:00'
 
 async def _Get(href: str, supressErrors = False):
     async with aiohttp.ClientSession() as session:
-        async with session.get(href) as response:
-            if response.status // 100 != 2 and not supressErrors: raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
+        async with session.get(href, headers=headers) as response:
+            if response.status // 100 != 2 and not supressErrors: 
+                raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
             return await response.json()
         
 async def _Post(href: str, data = None, supressErrors = False):
     async with aiohttp.ClientSession() as session:
         async with session.post(href, headers=headers, json=data) as response:
-            if response.status // 100 != 2 and not supressErrors: raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
+            if response.status // 100 != 2 and not supressErrors: 
+                raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
             return await response.json()
         
 async def _Put(href: str, data = None, supressErrors = False):
@@ -173,10 +175,11 @@ async def _Put(href: str, data = None, supressErrors = False):
                 raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
             return await response.json()
 
-async def _Delete(href: str):
+async def _Delete(href: str, supressErrors = False):
     async with aiohttp.ClientSession() as session:
         async with session.delete(href, headers=headers) as response:
-            if response.status // 100 != 2: raise Exception(f'HTTP ERROR: {response.start}')
+            if response.status // 100 != 2 and not supressErrors:
+                raise HTTPError(response.status, f'HTTP ERROR: {response.status}')
             return await response.json()
 
 
