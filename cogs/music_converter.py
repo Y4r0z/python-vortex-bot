@@ -1,14 +1,19 @@
 import os
 from pathlib import Path
-from pydub import AudioSegment
 from math import log10
+
+import soundfile as sf
+from pedalboard import Pedalboard, Limiter, Gain
 import yt_dlp
-import time
+import librosa
+import numpy as np
+
 import re
 import json
 import asyncio
 import settings
 from discord.ext import commands
+from transliterate import translit
 
 logger = settings.logging.getLogger("discord")
 
@@ -31,7 +36,7 @@ class MusicConverterCog(commands.Cog):
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
-                'preferredquality': '320',
+                'preferredquality': '192',
             }],
             'outtmpl': str(self.temp_folder / '%(title)s.%(ext)s'),
             'quiet': True,
@@ -40,9 +45,23 @@ class MusicConverterCog(commands.Cog):
         # Запускаем обработчик очереди
         self.background_task = self.bot.loop.create_task(self.process_queue())
 
-    def sanitize_filename(self, title: str) -> str:
-        """Преобразует название трека в безопасное имя файла"""
-        safe_name = re.sub(r'[^a-zA-Z0-9]', '', title.lower())
+    def clean_filename(self, title: str) -> str:
+        """
+        Преобразует название трека в безопасное имя файла:
+        - Транслитерация кириллицы в латиницу
+        - Ограничение длины до 15 символов
+        - Удаление специальных символов
+        """
+        # Транслитерация кириллицы
+        transliterated = translit(title, 'ru', reversed=True)
+        
+        # Удаляем все символы кроме букв и цифр
+        safe_name = re.sub(r'[^a-zA-Z0-9]', '', transliterated.lower())
+        
+        # Ограничиваем длину до 15 символов
+        safe_name = safe_name[:15]
+        
+        # Добавляем расширение
         return f"{safe_name}.mp3"
     
     async def save_track_data(self, steam_id: str, track_data: dict) -> bool:
@@ -108,12 +127,10 @@ class MusicConverterCog(commands.Cog):
         try:
             if not url or not title:
                 return False, "Invalid input"
-
             # Проверка существования директорий
             if not self.output_folder.exists():
                 logger.info(f"Creating output folder: {self.output_folder}")
                 self.output_folder.mkdir(parents=True, exist_ok=True)
-
             # Проверяем права до создания файла
             logger.info(f"Checking permissions for folder: {self.output_folder}")
             if not os.access(str(self.output_folder), os.W_OK):
@@ -121,11 +138,11 @@ class MusicConverterCog(commands.Cog):
                 logger.debug(f"Folder permissions: {oct(os.stat(str(self.output_folder)).st_mode)}")
                 logger.debug(f"Current user/group: {os.getuid()}:{os.getgid()}")
                 return False, "Permission denied"
-            
+        
             # Формируем безопасное имя файла
-            output_filename = self.sanitize_filename(title)
+            output_filename = self.clean_filename(title)
             output_path = self.output_folder / output_filename
-            
+        
             # Проверяем возможность записи файла
             logger.info(f"Testing file creation: {output_path}")
             try:
@@ -136,48 +153,66 @@ class MusicConverterCog(commands.Cog):
                 logger.error(f"Cannot write to output file {output_path}: {e}")
                 logger.debug(f"Parent folder permissions: {oct(os.stat(str(output_path.parent)).st_mode)}")
                 return False, f"Permission denied: {str(e)}"
-            
+        
             # Загружаем файл
             loop = asyncio.get_event_loop()
             downloaded_file = await loop.run_in_executor(
                 None, self.download_track, url
             )
-            
+        
             if not downloaded_file:
                 return False, ""
-
             # Проверка размера файла
             MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
             if os.path.getsize(str(downloaded_file)) > MAX_FILE_SIZE:
                 downloaded_file.unlink(missing_ok=True)
                 return False, "File too large"
 
-            # Обрабатываем аудио
-            audio = AudioSegment.from_mp3(str(downloaded_file))
-            
-            # Увеличиваем громкость на 6dB
-            audio = audio + 6
-            
-            # Применяем Hard Limit до -0.1dB
-            max_amplitude = abs(max(audio.get_array_of_samples()))
-            target_amplitude = 32767 * 0.99  # -0.1dB
-            
-            if max_amplitude > target_amplitude:
-                reduction_factor = target_amplitude / max_amplitude
-                audio = audio.apply_gain(20 * log10(reduction_factor))
-            
-            # Экспортируем с новыми параметрами
-            audio.export(
-                str(output_path),
-                format="mp3",
-                bitrate="124k",
-                tags=None,
-                parameters=["-map_metadata", "-1"]
-            )
-            
+            # Новая обработка аудио
+            def process_audio(input_file, output_file):
+                audio, original_sr = sf.read(input_file)
+                
+                board = Pedalboard([
+                    Gain(gain_db=8.0),
+                    Limiter(
+                        threshold_db=-0.5,
+                        release_ms=100.0
+                    ),
+                    Gain(gain_db=2.0)
+                ])
+                
+                effected = board(audio, original_sr)
+                
+                if original_sr != 44100:
+                    if len(effected.shape) > 1:
+                        resampled_left = librosa.resample(
+                            y=effected[:, 0],
+                            orig_sr=original_sr,
+                            target_sr=44100
+                        )
+                        resampled_right = librosa.resample(
+                            y=effected[:, 1],
+                            orig_sr=original_sr,
+                            target_sr=44100
+                        )
+                        resampled = np.vstack((resampled_left, resampled_right)).T
+                    else:
+                        resampled = librosa.resample(
+                            y=effected,
+                            orig_sr=original_sr,
+                            target_sr=44100
+                        )
+                else:
+                    resampled = effected
+                
+                sf.write(output_file, resampled, 44100)
+
+            # Вызываем новую функцию обработки
+            process_audio(str(downloaded_file), str(output_path))
+        
             # Удаляем временный файл
             downloaded_file.unlink(missing_ok=True)
-            
+        
             return True, f"ui/{output_filename}"
             
         except Exception as e:

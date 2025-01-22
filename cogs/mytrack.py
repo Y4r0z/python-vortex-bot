@@ -185,45 +185,133 @@ class NextSeasonTrackManager:
 
 async def get_track_info_from_url(url: str) -> Optional[Tuple[str, str]]:
     """
-    Получает информацию о треке из URL любого поддерживаемого сервиса
+    Получает информацию о треке из URL любого поддерживаемого сервиса.
+    Декодирует HTML-сущности и очищает текст от специальных символов для лучшего поиска.
+    
     Returns: tuple(title, artist) или None
     """
     try:
+        from html import unescape
+        import re
+        
         headers = {
             'User-Agent': 'Mozilla/5.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }
         response = requests.get(url, headers=headers)
         
+        def clean_search_text(text: str) -> str:
+            """
+            Очищает текст от HTML-сущностей и спецсимволов.
+            Также удаляет суффиксы вида " on Service Name"
+            """
+            # Декодируем HTML-сущности
+            text = unescape(text)
+            
+            # Удаляем всё после " on " (с пробелами)
+            if " on " in text:
+                text = text.split(" on ")[0]
+            
+            # Удаляем " by " и всё после (только если это в конце строки)
+            if text.endswith(")"):
+                # Если строка заканчивается на ')', сохраняем скобки
+                base = text[:-1]
+                if " by " in base:
+                    text = base.split(" by ")[0] + ")"
+            else:
+                if " by " in text:
+                    text = text.split(" by ")[0]
+            
+            return text.strip()
+        
         if 'music.youtube.com' in url:
             video_id = url.split('v=')[1].split('&')[0]
             ytmusic = YTMusic()
             track_info = ytmusic.get_song(video_id)
             if track_info and 'videoDetails' in track_info:
-                return track_info['videoDetails']['title'], track_info['videoDetails']['author']
+                title = clean_search_text(track_info['videoDetails']['title'])
+                artist = clean_search_text(track_info['videoDetails']['author'])
+                return title, artist
         
         elif 'spotify.com' in url:
             title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
             artist_match = re.search(r'<meta property="og:description" content="([^"]+)"', response.text)
             
             if title_match and artist_match:
-                title = title_match.group(1)
-                artist = artist_match.group(1).split('·')[0].strip()
+                title = clean_search_text(title_match.group(1))
+                artist = clean_search_text(artist_match.group(1).split('·')[0])
                 return title, artist
-        
-        else:
-            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
-            if not title_match:
-                return None
-                
-            title = title_match.group(1)
-            
-            for separator in [' — ', ' – ', ' - ']:
-                if separator in title:
-                    artist, track = title.split(separator, 1)
-                    return track.strip(), artist.strip()
+
+        elif 'music.yandex' in url:
+            # Yandex Music использует JSON-данные в теге script
+            json_match = re.search(r'<script type="application/ld\+json">(.+?)</script>', response.text)
+            if json_match:
+                try:
+                    track_data = json.loads(json_match.group(1))
+                    if isinstance(track_data, list):
+                        track_data = track_data[0]
                     
-            return title, ""
+                    if 'name' in track_data and 'byArtist' in track_data:
+                        title = clean_search_text(track_data['name'])
+                        if isinstance(track_data['byArtist'], list):
+                            artist = clean_search_text(track_data['byArtist'][0]['name'])
+                        else:
+                            artist = clean_search_text(track_data['byArtist']['name'])
+                        return title, artist
+                except json.JSONDecodeError:
+                    pass
+
+            # Запасной вариант через мета-теги
+            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
+            if title_match:
+                title = clean_search_text(title_match.group(1))
+                # Yandex Music обычно использует формат "Исполнитель - Название"
+                if ' - ' in title:
+                    artist, track = title.split(' - ', 1)
+                    return clean_search_text(track), clean_search_text(artist)
+
+        elif 'music.apple.com' in url:
+            # Apple Music использует JSON-данные в теге script
+            json_match = re.search(r'<script type="application/ld\+json">(.+?)</script>', response.text)
+            if json_match:
+                try:
+                    track_data = json.loads(json_match.group(1))
+                    if 'name' in track_data and 'byArtist' in track_data:
+                        title = clean_search_text(track_data['name'])
+                        if isinstance(track_data['byArtist'], list):
+                            artist = clean_search_text(track_data['byArtist'][0]['name'])
+                        else:
+                            artist = clean_search_text(track_data['byArtist']['name'])
+                        return title, artist
+                except json.JSONDecodeError:
+                    pass
+            
+            # Запасной вариант через мета-теги
+            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
+            desc_match = re.search(r'<meta property="og:description" content="([^"]+)"', response.text)
+            
+            if title_match and desc_match:
+                title = clean_search_text(title_match.group(1))
+                description = clean_search_text(desc_match.group(1))
+                # Извлекаем имя исполнителя из описания
+                artist_match = re.search(r'Song · (.+?) ·', description)
+                if artist_match:
+                    artist = clean_search_text(artist_match.group(1))
+                    return title, artist
+        
+        # Для остальных сервисов пытаемся извлечь из og:title
+        title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
+        if not title_match:
+            return None
+            
+        title = clean_search_text(title_match.group(1))
+        
+        for separator in [' — ', ' – ', ' - ']:
+            if separator in title:
+                artist, track = title.split(separator, 1)
+                return clean_search_text(track), clean_search_text(artist)
+                
+        return title, ""
             
     except Exception as e:
         logger.error(f'Error getting track info from URL: {str(e)}')
@@ -237,11 +325,21 @@ class TrackSelectView(discord.ui.View):
         self.bot = bot
         self._add_track_buttons()
 
+    def _truncate_text(self, text: str, max_length: int = 75) -> str:
+        """Сокращает текст до указанной длины, добавляя ... если текст был обрезан"""
+        if len(text) <= max_length:
+            return text
+        return text[:max_length - 3] + "..."
+
     def _add_track_buttons(self):
         """Добавляет кнопки с треками"""
         for track in self.tracks[:5]:
+            # Формируем текст для кнопки и обрезаем его при необходимости
+            button_text = f"{track['title']} - {track['artists'][0]['name']}"
+            truncated_text = self._truncate_text(button_text)
+            
             button = discord.ui.Button(
-                label=f"{track['title']} - {track['artists'][0]['name']}",
+                label=truncated_text,
                 style=discord.ButtonStyle.secondary,
                 custom_id=f"track_{track['videoId']}"
             )
@@ -308,6 +406,41 @@ class TrackPreviewView(discord.ui.View):
             button.callback = callback
             self.add_item(button)
 
+    @staticmethod
+    def clean_track_name(title: str) -> str:
+        """
+        Очищает название трека от информации в скобках и лишних авторов.
+        
+        Args:
+            title (str): Исходное название трека
+            
+        Returns:
+            str: Очищенное название трека
+        """
+        import re
+        
+        # Паттерн для поиска скобок и их содержимого
+        brackets_pattern = r'\s*[\(\[\{].*?[\)\]\}]'
+        
+        # Сначала удаляем все скобки и их содержимое
+        cleaned = re.sub(brackets_pattern, '', title)
+        
+        # Разделяем название и авторов
+        if ' - ' in cleaned:
+            song_part, artists_part = cleaned.split(' - ', 1)
+            
+            # Берем только первого автора до запятой
+            first_artist = artists_part.split(',')[0].strip()
+            
+            # Собираем очищенное название
+            cleaned = f"{song_part.strip()} - {first_artist}"
+        
+        # Удаляем лишние пробелы
+        cleaned = ' '.join(cleaned.split())
+        
+        return cleaned
+
+    # Для использования в TrackPreviewView необходимо изменить метод confirm_callback:
     async def confirm_callback(self, interaction: discord.Interaction):
         try:
             vortex_user = await tryGetOtherUser(interaction.user, interaction)
@@ -320,7 +453,10 @@ class TrackPreviewView(discord.ui.View):
                 
             steam_id = vortex_user['steamId']
             track_url = f"https://music.youtube.com/watch?v={self.track['videoId']}"
-            track_title = f"{self.track['title']} - {self.track['artists'][0]['name']}"
+            
+            # Собираем полное название с авторами и очищаем его
+            track_title = f"{self.track['title']} - {', '.join(artist['name'] for artist in self.track['artists'])}"
+            cleaned_title = self.clean_track_name(track_title)
             
             # Получаем конвертер
             converter = self.bot.get_cog('MusicConverterCog')
@@ -331,17 +467,17 @@ class TrackPreviewView(discord.ui.View):
                 )
                 return
 
-            # Добавляем в очередь
-            if not await converter.add_to_queue(steam_id, track_url, track_title):
+            # Добавляем в очередь (используем очищенное название)
+            if not await converter.add_to_queue(steam_id, track_url, cleaned_title):
                 await interaction.response.send_message(
                     "Произошла ошибка при добавлении трека в очередь. Пожалуйста, попробуйте позже.",
                     ephemeral=True
                 )
                 return
 
-            # Сохраняем данные
+            # Сохраняем данные с очищенным названием
             track_data = {
-                "soundname": track_title,
+                "soundname": cleaned_title,
                 "path": "",
                 "url": track_url,
                 "timestamp": discord.utils.utcnow().isoformat()
@@ -354,24 +490,24 @@ class TrackPreviewView(discord.ui.View):
                 )
                 return
             
-            # Создаем эмбеды
+            # Используем очищенное название для эмбедов
             confirm_embed = TrackUtils.create_track_embed(
                 title="✨ Трек появится в новом сезоне!",
-                track_name=track_title,
+                track_name=cleaned_title,
                 thumbnail_url=self.track['thumbnails'][0]['url']
             )
             confirm_embed.set_footer(text=f"Выбрано {interaction.user.name}")
 
-            # Генерация ссылок на платформы
-            platform_links = TrackUtils.get_platform_links(track_title)
+            # Генерация ссылок на платформы также с очищенным названием
+            platform_links = TrackUtils.get_platform_links(cleaned_title)
 
-            # Создаем public_embed вручную
+            # Создаем public_embed с очищенным названием
             public_embed = discord.Embed(
-                title="🎵 Новый трек на следующий сезон!",
+                title="🎵 Трек нового сезона!",
                 color=EMBED_COLOR
             )
             public_embed.description = (
-                f"**{track_title}**\n\n"  # Добавляем название трека в начало описания
+                f"**{cleaned_title}**\n\n"
                 f"Выбрал игрок {interaction.user.mention}\n\n{' • '.join(platform_links)}"
             )
             public_embed.set_thumbnail(url=self.track['thumbnails'][0]['url'])
@@ -380,8 +516,7 @@ class TrackPreviewView(discord.ui.View):
             await interaction.response.edit_message(embed=confirm_embed, view=None)
             await interaction.channel.send(embed=public_embed)
 
-            logger.info(f'Added track for next season for user {steam_id} ({interaction.user.name}): {track_title}')
-
+            logger.info(f'Added track for next season for user {steam_id} ({interaction.user.name}): {cleaned_title}')
             
         except Exception as e:
             logger.error(f'Error saving track choice: {str(e)}')
