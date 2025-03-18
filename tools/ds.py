@@ -5,7 +5,7 @@ import lib.steam_api as Steam
 import asyncio
 from typing import Optional, Tuple
 
-logger = settings.logging.getLogger('discord')
+logger = settings.logging.getLogger('discord.sync')
 
 async def tryGetUser(interaction: discord.Interaction) -> Optional[Vortex.User]:
     """

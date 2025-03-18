@@ -126,7 +126,7 @@ class NextSeasonTrackManager:
     async def can_set_track(self) -> bool:
         """Проверяет, можно ли сейчас установить трек на следующий сезон"""
         now = datetime.utcnow()
-        return 20 <= now.day
+        return 0 <= now.day
         
     async def get_next_season_track(self, steam_id: str) -> Optional[Dict[str, Any]]:
         """Получает трек пользователя на следующий сезон"""

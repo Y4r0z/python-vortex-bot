@@ -174,6 +174,13 @@ LOGGING_CONFIG = {
             "filename": "logs/info.log",
             "formatter": "verbose",
             "mode": "w"
+        },
+        "sync_file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": "logs/sync.log",
+            "formatter": "verbose",
+            "mode": "w"
         }
     },
     "loggers": {
@@ -184,6 +191,11 @@ LOGGING_CONFIG = {
         },
         "discord": {
             "handlers": ['console2', 'file'],
+            "level": "INFO",
+            "propagate": False
+        },
+        "discord.sync": {
+            "handlers": ['console2', 'sync_file'],
             "level": "INFO",
             "propagate": False
         }
