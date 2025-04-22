@@ -368,7 +368,25 @@ class MusicConverter:
             else:
                 resampled = effected
             
-            sf.write(output_file, resampled, 44100)
+            temp_output = output_file + ".temp.wav"
+            sf.write(temp_output, resampled, 44100)
+            
+            import subprocess
+            try:
+                subprocess.run([
+                    'ffmpeg', 
+                    '-y',
+                    '-i', temp_output, 
+                    '-b:a', '120k',
+                    '-codec:a', 'libmp3lame',
+                    output_file
+                ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"FFmpeg конвертация не удалась: {e.stderr.decode() if e.stderr else str(e)}")
+                sf.write(output_file, resampled, 44100)
+            finally:
+                if os.path.exists(temp_output):
+                    os.unlink(temp_output)
         
         await asyncio.to_thread(_process)
 
