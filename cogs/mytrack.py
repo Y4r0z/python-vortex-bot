@@ -11,7 +11,7 @@ from tools.music import TrackUtils, track_manager, music_converter
 from ui.music import TrackSearchModal, create_navigation_view
 
 logger = settings.logging.getLogger("discord")
-EMBED_COLOR = discord.Color.from_rgb(88, 101, 242)  # Discord Blurple
+EMBED_COLOR = discord.Color.from_rgb(88, 101, 242)
 
 
 def check_roles():
@@ -95,6 +95,8 @@ class MyTrackCommand(commands.Cog):
                 color=discord.Color.red()
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    
     
     async def show_current_track(self, interaction: discord.Interaction, steam_id: str) -> None:
         try:

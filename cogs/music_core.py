@@ -1,6 +1,6 @@
 import json
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -8,6 +8,7 @@ import settings
 
 import lib.vortex_api as Vortex
 from tools.ds import checkAdmin
+from tools.music import TrackUtils, music_converter
 
 logger = settings.logging.getLogger('discord')
 
@@ -75,6 +76,13 @@ class MusicCore(commands.Cog):
                         skipped_count += 1
                         logger.info(f'Skipped uploading track for {steam_id} - no Legend or Moderator status')
                         continue
+                    
+                    url = track_info.get("url", "")
+                    if TrackUtils.is_youtube_url(url):
+                        video_id = TrackUtils.extract_youtube_id(url)
+                        normalized_url = f"https://www.youtube.com/watch?v={video_id}"
+                        track_info["url"] = normalized_url
+                        logger.info(f'Normalized YouTube URL for {steam_id}: {url} -> {normalized_url}')
                     
                     track_data = {
                         "soundname": track_info.get("soundname", ""),
@@ -251,6 +259,8 @@ class MusicCore(commands.Cog):
             await interaction.edit_original_response(
                 content=f"❌ Произошла ошибка при выполнении команды: {str(e)}"
             )
+            
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(

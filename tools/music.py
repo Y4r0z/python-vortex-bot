@@ -65,6 +65,30 @@ class TrackUtils:
             domain="music.apple.com"
         )
     }
+    
+    @staticmethod
+    def extract_youtube_id(url: str) -> Optional[str]:
+        patterns = [
+            r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=|v\/|embed\/|shorts\/|live\/)?([a-zA-Z0-9_-]{11})(?:&|\?|#|$)',
+            r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/attribution_link\?.*?u=%2Fwatch%3Fv%3D([a-zA-Z0-9_-]{11})',
+            r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/user\/[^\/]+\#p\/[^\/]+\/\d+\/([a-zA-Z0-9_-]{11})',
+            r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/\?v=([a-zA-Z0-9_-]{11})',
+            r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/\?vi=([a-zA-Z0-9_-]{11})',
+            r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:(?!v=).)*&v=([a-zA-Z0-9_-]{11})',
+            r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?vi=([a-zA-Z0-9_-]{11})',
+            r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/vi\/([a-zA-Z0-9_-]{11})',
+            r'(?:https?:\/\/)?(?:www\.)?youtube-nocookie\.com\/(?:v|embed)\/([a-zA-Z0-9_-]{11})'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+    
+    @staticmethod
+    def is_youtube_url(url: str) -> bool:
+        return TrackUtils.extract_youtube_id(url) is not None
 
     @staticmethod
     def get_platform_links(query: str) -> List[str]:
@@ -93,15 +117,15 @@ class TrackUtils:
     @staticmethod
     async def get_youtube_thumbnail(url: str) -> Optional[str]:
         try:
-            if 'youtube.com' not in url:
-                return None
-                
-            ytmusic = YTMusic()
-            video_id = url.split('v=')[1].split('&')[0]
-            track_info = ytmusic.get_song(video_id)
-            
-            if track_info and 'videoDetails' in track_info:
-                return track_info['videoDetails']['thumbnail']['thumbnails'][-1]['url']
+            video_id = TrackUtils.extract_youtube_id(url)
+            if video_id:
+                ytmusic = YTMusic()
+                try:
+                    track_info = ytmusic.get_song(video_id)
+                    if track_info and 'videoDetails' in track_info:
+                        return track_info['videoDetails']['thumbnail']['thumbnails'][-1]['url']
+                except Exception as e:
+                    logger.error(f'Error getting track thumbnail for ID {video_id}: {str(e)}')
         except Exception as e:
             logger.error(f'Error getting track thumbnail: {str(e)}')
         return None
@@ -276,9 +300,11 @@ class MusicConverter:
         try:
             if not url or not title:
                 return False, "Invalid input"
+            
             if not self.output_folder.exists():
                 logger.info(f"Creating output folder: {self.output_folder}")
                 self.output_folder.mkdir(parents=True, exist_ok=True)
+            
             logger.info(f"Checking permissions for folder: {self.output_folder}")
             if not os.access(str(self.output_folder), os.W_OK):
                 logger.error(f"No write permission to output folder: {self.output_folder}")
@@ -320,6 +346,12 @@ class MusicConverter:
 
     async def download_track(self, url: str) -> Optional[Path]:
         try:
+            video_id = TrackUtils.extract_youtube_id(url)
+            if video_id:
+                normalized_url = f"https://www.youtube.com/watch?v={video_id}"
+                logger.info(f"Normalized YouTube URL: {url} -> {normalized_url}")
+                url = normalized_url
+            
             def _download():
                 with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
@@ -419,6 +451,34 @@ class MusicConverter:
 
 async def get_track_info_from_url(url: str) -> Optional[Tuple[str, str]]:
     try:
+        video_id = TrackUtils.extract_youtube_id(url)
+        if video_id:
+            try:
+                ytmusic = YTMusic()
+                track_info = ytmusic.get_song(video_id)
+                if track_info and 'videoDetails' in track_info:
+                    def clean_search_text(text: str) -> str:
+                        text = unescape(text)
+                        
+                        if " on " in text:
+                            text = text.split(" on ")[0]
+                        
+                        if text.endswith(")"):
+                            base = text[:-1]
+                            if " by " in base:
+                                text = base.split(" by ")[0] + ")"
+                        else:
+                            if " by " in text:
+                                text = text.split(" by ")[0]
+                        
+                        return text.strip()
+                    
+                    title = clean_search_text(track_info['videoDetails']['title'])
+                    artist = clean_search_text(track_info['videoDetails']['author'])
+                    return title, artist
+            except Exception as e:
+                logger.error(f'Error getting track info from YouTube API for ID {video_id}: {str(e)}')
+        
         async with aiohttp.ClientSession() as session:
             headers = {
                 'User-Agent': 'Mozilla/5.0',

@@ -8,7 +8,7 @@ from tools.music import TrackUtils, get_track_info_from_url, music_converter, tr
 from tools.ds import tryGetOtherUser
 
 logger = settings.logging.getLogger('discord')
-EMBED_COLOR = discord.Color.from_rgb(88, 101, 242)  # Discord Blurple
+EMBED_COLOR = discord.Color.from_rgb(88, 101, 242)
 
 
 class TrackSelectView(discord.ui.View):
@@ -198,7 +198,127 @@ class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
                 track_name=""
             )
             
-            if any(platform.domain in query_text.lower() for platform in TrackUtils.MUSIC_PLATFORMS.values()):
+            is_youtube_url = TrackUtils.is_youtube_url(query_text)
+            is_music_youtube_url = "music.youtube.com" in query_text.lower()
+            is_other_platform_url = any(platform.domain in query_text.lower() for platform in [
+                platform for platform in TrackUtils.MUSIC_PLATFORMS.values() 
+                if platform.domain not in ["music.youtube.com", "youtube.com"]
+            ])
+            
+            if is_youtube_url or is_music_youtube_url:
+                video_id = TrackUtils.extract_youtube_id(query_text)
+                if not video_id:
+                    embed.description = "❌ Не удалось обработать ссылку. Пожалуйста, проверьте ссылку и попробуйте снова."
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+                
+                try:
+                    track_info = None
+                    try:
+                        track_info = ytmusic.get_song(video_id)
+                    except Exception as e:
+                        logger.warning(f"Не удалось получить информацию через YTMusic API: {str(e)}")
+                    
+                    if not track_info or 'videoDetails' not in track_info:
+                        api_url = f"https://www.youtube.com/watch?v={video_id}"
+                        track_info = await get_track_info_from_url(api_url)
+                        
+                        if not track_info:
+                            embed.description = "❌ Не удалось получить информацию о треке. Попробуйте ввести название вручную."
+                            await interaction.followup.send(embed=embed, ephemeral=True)
+                            return
+                            
+                        title, artist = track_info
+                        
+                        vortex_user = await tryGetOtherUser(interaction.user, interaction)
+                        if not vortex_user:
+                            await interaction.followup.send(
+                                "Для использования этой команды необходимо связать свой Steam аккаунт. Используйте команду /link",
+                                ephemeral=True
+                            )
+                            return
+                            
+                        steam_id = vortex_user['steamId']
+                        track_url = f"https://www.youtube.com/watch?v={video_id}"
+                        
+                        track_title = f"{title}" if not artist else f"{title} - {artist}"
+                        cleaned_title = TrackUtils.clean_track_name(track_title)
+                        
+                        thumbnail_url = await TrackUtils.get_youtube_thumbnail(track_url)
+                        
+                        if not await music_converter.add_to_queue(steam_id, track_url, cleaned_title):
+                            await interaction.followup.send(
+                                "Произошла ошибка при добавлении трека в очередь. Пожалуйста, попробуйте позже.",
+                                ephemeral=True
+                            )
+                            return
+                        
+                        track_data = {
+                            "soundname": cleaned_title,
+                            "path": "",
+                            "url": track_url,
+                            "timestamp": discord.utils.utcnow().isoformat()
+                        }
+                        
+                        if not await music_converter.save_track_data(steam_id, track_data):
+                            await interaction.followup.send(
+                                "Произошла ошибка при сохранении данных. Пожалуйста, попробуйте позже.",
+                                ephemeral=True
+                            )
+                            return
+                        
+                        confirm_embed = TrackUtils.create_track_embed(
+                            title="✨ Трек появится в новом сезоне!",
+                            track_name=cleaned_title,
+                            thumbnail_url=thumbnail_url
+                        )
+                        confirm_embed.set_footer(text=f"Выбрано {interaction.user.name}")
+                        
+                        platform_links = TrackUtils.get_platform_links(cleaned_title)
+                        
+                        public_embed = discord.Embed(
+                            title="🎵 Трек нового сезона!",
+                            color=EMBED_COLOR
+                        )
+                        public_embed.description = (
+                            f"**{cleaned_title}**\n\n"
+                            f"Выбрал игрок {interaction.user.mention}\n\n{' • '.join(platform_links)}"
+                        )
+                        
+                        if thumbnail_url:
+                            public_embed.set_thumbnail(url=thumbnail_url)
+                        
+                        await interaction.followup.send(embed=confirm_embed, ephemeral=True)
+                        await interaction.channel.send(embed=public_embed)
+                        
+                        logger.info(f'Added track from YouTube URL for user {steam_id} ({interaction.user.name}): {cleaned_title}')
+                        return
+                    
+                    video_details = track_info['videoDetails']
+                    track = {
+                        'videoId': video_id,
+                        'title': video_details['title'],
+                        'artists': [{'name': video_details['author']}],
+                        'thumbnails': [{'url': video_details['thumbnail']['thumbnails'][-1]['url']}]
+                    }
+                    
+                    embed = TrackUtils.create_track_embed(
+                        title="🎧 Предпрослушивание",
+                        track_name=f"{track['title']}\n*{track['artists'][0]['name']}*",
+                        thumbnail_url=track['thumbnails'][0]['url']
+                    )
+                    
+                    preview_view = TrackPreviewView(track, [track], ytmusic, self.bot)
+                    await interaction.followup.send(embed=embed, view=preview_view, ephemeral=True)
+                    return
+                    
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке YouTube ссылки: {str(e)}")
+                    embed.description = f"❌ Ошибка при обработке ссылки: {str(e)}"
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+            
+            elif is_other_platform_url:
                 track_info = await get_track_info_from_url(query_text)
                 
                 if track_info:
@@ -213,7 +333,7 @@ class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
                         view = TrackSelectView(search_results, ytmusic, self.bot)
                         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                         return
-                    
+                
                 embed.description = "❌ Не удалось найти трек. Попробуйте ввести название вручную."
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
