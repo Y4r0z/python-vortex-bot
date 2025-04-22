@@ -6,7 +6,7 @@ import librosa
 import numpy as np
 import yt_dlp
 import asyncio
-import requests
+import aiohttp
 import discord
 from pedalboard import Pedalboard, Limiter, Gain
 from pathlib import Path
@@ -192,6 +192,7 @@ class MusicConverter:
         self.tracks_file = self.base_path / "preferences" / "tracks.json"
         
         self.output_folder.mkdir(parents=True, exist_ok=True)
+        self.temp_folder.mkdir(parents=True, exist_ok=True)
         
         self.ydl_opts = {
             'format': 'bestaudio/best',
@@ -298,10 +299,7 @@ class MusicConverter:
                 logger.debug(f"Parent folder permissions: {oct(os.stat(str(output_path.parent)).st_mode)}")
                 return False, f"Permission denied: {str(e)}"
         
-            loop = asyncio.get_event_loop()
-            downloaded_file = await loop.run_in_executor(
-                None, self.download_track, url
-            )
+            downloaded_file = await self.download_track(url)
         
             if not downloaded_file:
                 return False, ""
@@ -311,45 +309,7 @@ class MusicConverter:
                 downloaded_file.unlink(missing_ok=True)
                 return False, "File too large"
 
-            def process_audio(input_file, output_file):
-                audio, original_sr = sf.read(input_file)
-                
-                board = Pedalboard([
-                    Gain(gain_db=8.0),
-                    Limiter(
-                        threshold_db=-0.5,
-                        release_ms=100.0
-                    ),
-                    Gain(gain_db=2.0)
-                ])
-                
-                effected = board(audio, original_sr)
-                
-                if original_sr != 44100:
-                    if len(effected.shape) > 1:
-                        resampled_left = librosa.resample(
-                            y=effected[:, 0],
-                            orig_sr=original_sr,
-                            target_sr=44100
-                        )
-                        resampled_right = librosa.resample(
-                            y=effected[:, 1],
-                            orig_sr=original_sr,
-                            target_sr=44100
-                        )
-                        resampled = np.vstack((resampled_left, resampled_right)).T
-                    else:
-                        resampled = librosa.resample(
-                            y=effected,
-                            orig_sr=original_sr,
-                            target_sr=44100
-                        )
-                else:
-                    resampled = effected
-                
-                sf.write(output_file, resampled, 44100)
-
-            process_audio(str(downloaded_file), str(output_path))
+            await self.process_audio(str(downloaded_file), str(output_path))
         
             downloaded_file.unlink(missing_ok=True)
             return True, f"ui/{output_filename}"
@@ -358,15 +318,59 @@ class MusicConverter:
             logger.error(f"Error processing track {url}: {str(e)}")
             return False, str(e)
 
-    def download_track(self, url: str) -> Path:
+    async def download_track(self, url: str) -> Optional[Path]:
         try:
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                filename = ydl.prepare_filename(info)
-                return Path(filename).with_suffix('.mp3')
+            def _download():
+                with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    filename = ydl.prepare_filename(info)
+                    return Path(filename).with_suffix('.mp3')
+            
+            return await asyncio.to_thread(_download)
         except Exception as e:
             logger.error(f"Error downloading track {url}: {str(e)}")
             return None
+
+    async def process_audio(self, input_file: str, output_file: str):
+        def _process():
+            audio, original_sr = sf.read(input_file)
+            
+            board = Pedalboard([
+                Gain(gain_db=8.0),
+                Limiter(
+                    threshold_db=-0.5,
+                    release_ms=100.0
+                ),
+                Gain(gain_db=2.0)
+            ])
+            
+            effected = board(audio, original_sr)
+            
+            if original_sr != 44100:
+                if len(effected.shape) > 1:
+                    resampled_left = librosa.resample(
+                        y=effected[:, 0],
+                        orig_sr=original_sr,
+                        target_sr=44100
+                    )
+                    resampled_right = librosa.resample(
+                        y=effected[:, 1],
+                        orig_sr=original_sr,
+                        target_sr=44100
+                    )
+                    resampled = np.vstack((resampled_left, resampled_right)).T
+                else:
+                    resampled = librosa.resample(
+                        y=effected,
+                        orig_sr=original_sr,
+                        target_sr=44100
+                    )
+            else:
+                resampled = effected
+            
+            sf.write(output_file, resampled, 44100)
+        
+        await asyncio.to_thread(_process)
 
     async def update_track_path(self, steam_id: str, path: str) -> bool:
         try:
@@ -397,109 +401,114 @@ class MusicConverter:
 
 async def get_track_info_from_url(url: str) -> Optional[Tuple[str, str]]:
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        }
-        response = requests.get(url, headers=headers)
-        
-        def clean_search_text(text: str) -> str:
-            text = unescape(text)
-            
-            if " on " in text:
-                text = text.split(" on ")[0]
-            
-            if text.endswith(")"):
-                base = text[:-1]
-                if " by " in base:
-                    text = base.split(" by ")[0] + ")"
-            else:
-                if " by " in text:
-                    text = text.split(" by ")[0]
-            
-            return text.strip()
-        
-        if 'music.youtube.com' in url:
-            video_id = url.split('v=')[1].split('&')[0]
-            ytmusic = YTMusic()
-            track_info = ytmusic.get_song(video_id)
-            if track_info and 'videoDetails' in track_info:
-                title = clean_search_text(track_info['videoDetails']['title'])
-                artist = clean_search_text(track_info['videoDetails']['author'])
-                return title, artist
-        
-        elif 'spotify.com' in url:
-            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
-            artist_match = re.search(r'<meta property="og:description" content="([^"]+)"', response.text)
-            
-            if title_match and artist_match:
-                title = clean_search_text(title_match.group(1))
-                artist = clean_search_text(artist_match.group(1).split('·')[0])
-                return title, artist
-
-        elif 'music.yandex' in url:
-            json_match = re.search(r'<script type="application/ld\+json">(.+?)</script>', response.text)
-            if json_match:
-                try:
-                    track_data = json.loads(json_match.group(1))
-                    if isinstance(track_data, list):
-                        track_data = track_data[0]
-                    
-                    if 'name' in track_data and 'byArtist' in track_data:
-                        title = clean_search_text(track_data['name'])
-                        if isinstance(track_data['byArtist'], list):
-                            artist = clean_search_text(track_data['byArtist'][0]['name'])
-                        else:
-                            artist = clean_search_text(track_data['byArtist']['name'])
-                        return title, artist
-                except json.JSONDecodeError:
-                    pass
-
-            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
-            if title_match:
-                title = clean_search_text(title_match.group(1))
-                if ' - ' in title:
-                    artist, track = title.split(' - ', 1)
-                    return clean_search_text(track), clean_search_text(artist)
-
-        elif 'music.apple.com' in url:
-            json_match = re.search(r'<script type="application/ld\+json">(.+?)</script>', response.text)
-            if json_match:
-                try:
-                    track_data = json.loads(json_match.group(1))
-                    if 'name' in track_data and 'byArtist' in track_data:
-                        title = clean_search_text(track_data['name'])
-                        if isinstance(track_data['byArtist'], list):
-                            artist = clean_search_text(track_data['byArtist'][0]['name'])
-                        else:
-                            artist = clean_search_text(track_data['byArtist']['name'])
-                        return title, artist
-                except json.JSONDecodeError:
-                    pass
-            
-            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
-            desc_match = re.search(r'<meta property="og:description" content="([^"]+)"', response.text)
-            
-            if title_match and desc_match:
-                title = clean_search_text(title_match.group(1))
-                description = clean_search_text(desc_match.group(1))
-                artist_match = re.search(r'Song · (.+?) ·', description)
-                if artist_match:
-                    artist = clean_search_text(artist_match.group(1))
-                    return title, artist
-        
-        title_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
-        if not title_match:
-            return None
-            
-        title = clean_search_text(title_match.group(1))
-        
-        for separator in [' — ', ' – ', ' - ']:
-            if separator in title:
-                artist, track = title.split(separator, 1)
-                return clean_search_text(track), clean_search_text(artist)
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'User-Agent': 'Mozilla/5.0',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }
+            async with session.get(url, headers=headers) as response:
+                if response.status != 200:
+                    return None
                 
-        return title, ""
+                html_content = await response.text()
+                
+                def clean_search_text(text: str) -> str:
+                    text = unescape(text)
+                    
+                    if " on " in text:
+                        text = text.split(" on ")[0]
+                    
+                    if text.endswith(")"):
+                        base = text[:-1]
+                        if " by " in base:
+                            text = base.split(" by ")[0] + ")"
+                    else:
+                        if " by " in text:
+                            text = text.split(" by ")[0]
+                    
+                    return text.strip()
+                
+                if 'music.youtube.com' in url:
+                    video_id = url.split('v=')[1].split('&')[0]
+                    ytmusic = YTMusic()
+                    track_info = ytmusic.get_song(video_id)
+                    if track_info and 'videoDetails' in track_info:
+                        title = clean_search_text(track_info['videoDetails']['title'])
+                        artist = clean_search_text(track_info['videoDetails']['author'])
+                        return title, artist
+                
+                elif 'spotify.com' in url:
+                    title_match = re.search(r'<meta property="og:title" content="([^"]+)"', html_content)
+                    artist_match = re.search(r'<meta property="og:description" content="([^"]+)"', html_content)
+                    
+                    if title_match and artist_match:
+                        title = clean_search_text(title_match.group(1))
+                        artist = clean_search_text(artist_match.group(1).split('·')[0])
+                        return title, artist
+
+                elif 'music.yandex' in url:
+                    json_match = re.search(r'<script type="application/ld\+json">(.+?)</script>', html_content)
+                    if json_match:
+                        try:
+                            track_data = json.loads(json_match.group(1))
+                            if isinstance(track_data, list):
+                                track_data = track_data[0]
+                            
+                            if 'name' in track_data and 'byArtist' in track_data:
+                                title = clean_search_text(track_data['name'])
+                                if isinstance(track_data['byArtist'], list):
+                                    artist = clean_search_text(track_data['byArtist'][0]['name'])
+                                else:
+                                    artist = clean_search_text(track_data['byArtist']['name'])
+                                return title, artist
+                        except json.JSONDecodeError:
+                            pass
+
+                    title_match = re.search(r'<meta property="og:title" content="([^"]+)"', html_content)
+                    if title_match:
+                        title = clean_search_text(title_match.group(1))
+                        if ' - ' in title:
+                            artist, track = title.split(' - ', 1)
+                            return clean_search_text(track), clean_search_text(artist)
+
+                elif 'music.apple.com' in url:
+                    json_match = re.search(r'<script type="application/ld\+json">(.+?)</script>', html_content)
+                    if json_match:
+                        try:
+                            track_data = json.loads(json_match.group(1))
+                            if 'name' in track_data and 'byArtist' in track_data:
+                                title = clean_search_text(track_data['name'])
+                                if isinstance(track_data['byArtist'], list):
+                                    artist = clean_search_text(track_data['byArtist'][0]['name'])
+                                else:
+                                    artist = clean_search_text(track_data['byArtist']['name'])
+                                return title, artist
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    title_match = re.search(r'<meta property="og:title" content="([^"]+)"', html_content)
+                    desc_match = re.search(r'<meta property="og:description" content="([^"]+)"', html_content)
+                    
+                    if title_match and desc_match:
+                        title = clean_search_text(title_match.group(1))
+                        description = clean_search_text(desc_match.group(1))
+                        artist_match = re.search(r'Song · (.+?) ·', description)
+                        if artist_match:
+                            artist = clean_search_text(artist_match.group(1))
+                            return title, artist
+                
+                title_match = re.search(r'<meta property="og:title" content="([^"]+)"', html_content)
+                if not title_match:
+                    return None
+                    
+                title = clean_search_text(title_match.group(1))
+                
+                for separator in [' — ', ' – ', ' - ']:
+                    if separator in title:
+                        artist, track = title.split(separator, 1)
+                        return clean_search_text(track), clean_search_text(artist)
+                        
+                return title, ""
             
     except Exception as e:
         logger.error(f'Error getting track info from URL: {str(e)}')
