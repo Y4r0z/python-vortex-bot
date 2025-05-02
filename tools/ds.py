@@ -3,9 +3,11 @@ import settings
 import lib.vortex_api as Vortex
 import lib.steam_api as Steam
 import asyncio
-from typing import Optional, Tuple
+import datetime
+from typing import Optional, Tuple, Literal
 
-logger = settings.logging.getLogger('discord.sync')
+logger = settings.logging.getLogger('discord.info')
+sync_logger = settings.logging.getLogger('sync')
 
 async def tryGetUser(interaction: discord.Interaction) -> Optional[Vortex.User]:
     """
@@ -106,28 +108,51 @@ async def _retry_api_call(func, max_attempts: int = settings.API_RETRY_ATTEMPTS)
             logger.warning(f'API call failed (attempt {attempt + 1}): {str(e)}')
             await asyncio.sleep(settings.API_RETRY_DELAY)
 
-async def _check_boosty_privilege(
+async def check_privilege_status(
     privileges: list,
     privilege_id: int
-) -> Tuple[bool, Optional[dict]]:
+) -> Tuple[Literal['active', 'expired', 'missing'], Optional[dict]]:
     """
-    Проверяет наличие привилегии Boosty
+    Проверяет статус привилегии пользователя
     
     Args:
-        privileges: Список привилегий
+        privileges: Список привилегий пользователя
         privilege_id: ID привилегии для проверки
         
     Returns:
-        Tuple[bool, Optional[dict]]: (Найдена ли привилегия, Данные привилегии если найдена)
+        Tuple[str, Optional[dict]]: (Статус привилегии, Данные привилегии если найдена)
     """
     for privilege in privileges:
         if privilege['privilege']['id'] != privilege_id:
             continue
             
+        sync_logger.debug(f"Checking privilege: {privilege['privilege']['name']}, active until: {privilege['activeUntil']}")
+        
         if privilege['activeUntil'] == Vortex.BoostyPrivilegeUntil:
-            return True, privilege
+            return 'active', privilege
             
-    return False, None
+        try:
+            active_until_str = privilege['activeUntil']
+            
+            if 'Z' in active_until_str:
+                active_until_str = active_until_str.replace('Z', '+00:00')
+            elif '+' not in active_until_str and '-' not in active_until_str[10:]:
+                active_until_str = active_until_str + '+00:00'
+                
+            active_until = datetime.datetime.fromisoformat(active_until_str)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            
+            sync_logger.debug(f"Active until: {active_until}, now: {now}")
+            
+            if active_until > now:
+                return 'active', privilege
+            else:
+                return 'expired', privilege
+        except Exception as e:
+            sync_logger.error(f"Error parsing date: {privilege['activeUntil']}, error: {str(e)}")
+            return 'expired', privilege
+            
+    return 'missing', None
 
 async def syncRole(member: discord.Member, role_id: int, privilege_id: int) -> bool:
     """
@@ -141,54 +166,74 @@ async def syncRole(member: discord.Member, role_id: int, privilege_id: int) -> b
     Returns:
         bool: True если нужно закончить проверки ролей, False если проверять следующую
     """
-    logger.info(f'[SyncRole: {member.id}]: Start')
+    sync_logger.info(f'[SyncRole: {member.id} ({member.name})]: Start')
     
     try:
-        # Получаем данные пользователя
         user = await _retry_api_call(
             lambda: Vortex.GetDiscordUser(member.id)
         )
         if not user:
-            logger.info(f'[SyncRole: {member.id}]: User not found')
+            sync_logger.info(f'[SyncRole: {member.id}]: User not linked to Steam')
             return True
             
         steam_id = user['user']['steamId']
         
-        # Получаем привилегии
         privileges = await _retry_api_call(
             lambda: Vortex.GetUserPrivileges(steam_id)
         )
         
-        # Проверяем привилегию Boosty
-        has_boosty, privilege = await _check_boosty_privilege(privileges, privilege_id)
+        role_name = ""
         
-        if has_boosty:
-            if hasRole(member, role_id):
-                logger.info(f'[SyncRole: {member.id}]: The user already has both role and privilege')
-                return False
-                
-            # У пользователя есть привилегия, но нет роли - удаляем привилегию
-            logger.info(f'[SyncRole: {member.id}]: The user has privilege but not role - removing privilege')
+        if privilege_id == Vortex.PrivilegeTypeId.Vip:
+            role_name = "VIP"
+        elif privilege_id == Vortex.PrivilegeTypeId.Premium:
+            role_name = "Premium"
+        elif privilege_id == Vortex.PrivilegeTypeId.Legend:
+            role_name = "Legend"
+        
+        privilege_status, privilege = await check_privilege_status(privileges, privilege_id)
+        has_role = hasRole(member, role_id)
+        
+        sync_logger.info(f'[SyncRole: {member.id}]: {role_name} privilege status: {privilege_status}, has role: {has_role}')
+        
+        if privilege_status == 'active' and has_role:
+            sync_logger.info(f'[SyncRole: {member.id}]: User has active {role_name} privilege and role - nothing to do')
+            return False
+            
+        if privilege_status in ['expired', 'active'] and not has_role:
+            sync_logger.info(f'[SyncRole: {member.id}]: User has {role_name} privilege but not role - removing privilege')
             await _retry_api_call(
                 lambda: Vortex.DeleteUserPrivilege(steam_id, privilege)
             )
+            sync_logger.info(f'[SyncRole: {member.id}]: Successfully removed {role_name} privilege from API')
             return False
             
-        # У пользователя нет привилегии
-        if not hasRole(member, role_id):
-            logger.info(f'[SyncRole: {member.id}]: Role and privilege not found - abort')
+        if privilege_status == 'expired' and has_role:
+            sync_logger.info(f'[SyncRole: {member.id}]: User has expired {role_name} privilege and has role - refreshing privilege')
+            await _retry_api_call(
+                lambda: Vortex.DeleteUserPrivilege(steam_id, privilege)
+            )
+            sync_logger.info(f'[SyncRole: {member.id}]: Deleted expired {role_name} privilege')
+            
+            await _retry_api_call(
+                lambda: Vortex.SetUserPrivilege(steam_id, privilege_id)
+            )
+            sync_logger.info(f'[SyncRole: {member.id}]: Successfully added fresh {role_name} privilege to API')
             return False
             
-        # У пользователя нет привилегии, но есть роль - добавляем привилегию
-        logger.info(f'[SyncRole: {member.id}]: Adding privilege')
-        await _retry_api_call(
-            lambda: Vortex.SetUserPrivilege(steam_id, privilege_id)
-        )
-        logger.info(f'[SyncRole: {member.id}]: Privilege successfully added')
+        if privilege_status == 'missing' and has_role:
+            sync_logger.info(f'[SyncRole: {member.id}]: Adding {role_name} privilege to API')
+            await _retry_api_call(
+                lambda: Vortex.SetUserPrivilege(steam_id, privilege_id)
+            )
+            sync_logger.info(f'[SyncRole: {member.id}]: Successfully added {role_name} privilege to API')
+            return False
+            
+        sync_logger.info(f'[SyncRole: {member.id}]: {role_name} privilege not needed - skipping')
         return False
         
     except Exception as e:
-        logger.error(f'[SyncRole: {member.id}]: Error: {str(e)}')
+        sync_logger.error(f'[SyncRole: {member.id}]: Error: {str(e)}')
         return True
 
 async def syncAllRoles(member: discord.Member | discord.User) -> None:
@@ -202,14 +247,13 @@ async def syncAllRoles(member: discord.Member | discord.User) -> None:
         return
         
     try:
-        # Синхронизация стандартных ролей
-        if \
-            await syncRole(member, settings.Preferences['vip_role_id'], Vortex.PrivilegeTypeId.Vip) or \
-            await syncRole(member, settings.Preferences['premium_role_id'], Vortex.PrivilegeTypeId.Premium) or \
-            await syncRole(member, settings.Preferences['legend_role_id'], Vortex.PrivilegeTypeId.Legend):
+        sync_logger.info(f'Starting role sync for {member.id} ({member.name})')
+        
+        if await syncRole(member, settings.Preferences['vip_role_id'], Vortex.PrivilegeTypeId.Vip) or \
+           await syncRole(member, settings.Preferences['premium_role_id'], Vortex.PrivilegeTypeId.Premium) or \
+           await syncRole(member, settings.Preferences['legend_role_id'], Vortex.PrivilegeTypeId.Legend):
             return
 
-        # Проверка и выдача связанных ролей
         if 'linked_roles' in settings.Preferences:
             for primary_role_id, secondary_role_id in settings.Preferences['linked_roles'].items():
                 if hasRole(member, int(primary_role_id)):
@@ -219,13 +263,15 @@ async def syncAllRoles(member: discord.Member | discord.User) -> None:
                             secondary_role,
                             reason="Автоматическая выдача связанной роли при синхронизации"
                         )
-                        logger.info(
+                        sync_logger.info(
                             f'Added linked role {secondary_role_id} to '
                             f'user {member.id} during sync'
                         )
+        
+        sync_logger.info(f'Completed role sync for {member.id} ({member.name})')
 
     except Exception as e:
-        logger.error(f'Error syncing roles for {member.id}: {str(e)}')
+        sync_logger.error(f'Error syncing roles for {member.id}: {str(e)}')
 
 async def tryGetOtherUser(
     user: discord.User | discord.Member,

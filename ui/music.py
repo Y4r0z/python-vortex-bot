@@ -7,7 +7,7 @@ import settings
 from tools.music import TrackUtils, get_track_info_from_url, music_converter, track_manager
 from tools.ds import tryGetOtherUser
 
-logger = settings.logging.getLogger('discord')
+logger = settings.logging.getLogger('music')
 EMBED_COLOR = discord.Color.from_rgb(88, 101, 242)
 
 
@@ -107,34 +107,45 @@ class TrackPreviewView(discord.ui.View):
                 return
                 
             steam_id = vortex_user['steamId']
-            track_url = f"https://music.youtube.com/watch?v={self.track['videoId']}"
             
+            can_update = await track_manager.can_update_track(steam_id)
+            if not can_update:
+                time_until_next = await track_manager.get_time_until_next_update(steam_id)
+                embed = discord.Embed(color=EMBED_COLOR)
+                embed.description = (
+                    f"### ⏳ Период ожидания\n\n"
+                    f"Вы сможете обновить свой трек через **{time_until_next}**.\n\n"
+                    f"Обновление треков доступно раз в 14 дней."
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            
+            track_url = f"https://music.youtube.com/watch?v={self.track['videoId']}"
             track_title = f"{self.track['title']} - {', '.join(artist['name'] for artist in self.track['artists'])}"
             cleaned_title = TrackUtils.clean_track_name(track_title)
             
-            if not await music_converter.add_to_queue(steam_id, track_url, cleaned_title):
-                await interaction.response.send_message(
-                    "Произошла ошибка при добавлении трека в очередь. Пожалуйста, попробуйте позже.",
-                    ephemeral=True
-                )
-                return
-
             track_data = {
                 "soundname": cleaned_title,
                 "path": "",
-                "url": track_url,
-                "timestamp": discord.utils.utcnow().isoformat()
+                "url": track_url
             }
             
-            if not await music_converter.save_track_data(steam_id, track_data):
+            if not await track_manager.update_track(steam_id, track_data):
                 await interaction.response.send_message(
-                    "Произошла ошибка при сохранении данных. Пожалуйста, попробуйте позже.",
+                    "Произошла ошибка при обновлении трека. Пожалуйста, попробуйте позже.",
+                    ephemeral=True
+                )
+                return
+            
+            if not await music_converter.add_to_queue(steam_id, track_url, cleaned_title, track_data):
+                await interaction.response.send_message(
+                    "Трек установлен, но произошла ошибка при добавлении в очередь конвертации. Попробуйте позже.",
                     ephemeral=True
                 )
                 return
             
             confirm_embed = TrackUtils.create_track_embed(
-                title="✨ Трек появится в новом сезоне!",
+                title="✨ Трек успешно установлен!",
                 track_name=cleaned_title,
                 thumbnail_url=self.track['thumbnails'][0]['url']
             )
@@ -143,19 +154,19 @@ class TrackPreviewView(discord.ui.View):
             platform_links = TrackUtils.get_platform_links(cleaned_title)
 
             public_embed = discord.Embed(
-                title="🎵 Трек нового сезона!",
+                title="🎵 Новый трек!",
                 color=EMBED_COLOR
             )
             public_embed.description = (
                 f"**{cleaned_title}**\n\n"
-                f"Выбрал игрок {interaction.user.mention}\n\n{' • '.join(platform_links)}"
+                f"Установил игрок {interaction.user.mention}\n\n{' • '.join(platform_links)}"
             )
             public_embed.set_thumbnail(url=self.track['thumbnails'][0]['url'])
 
             await interaction.response.edit_message(embed=confirm_embed, view=None)
             await interaction.channel.send(embed=public_embed)
 
-            logger.info(f'Added track for next season for user {steam_id} ({interaction.user.name}): {cleaned_title}')
+            logger.info(f'Updated track for user {steam_id} ({interaction.user.name}): {cleaned_title}')
             
         except Exception as e:
             logger.error(f'Error saving track choice: {str(e)}')
@@ -190,6 +201,28 @@ class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         try:
+            vortex_user = await tryGetOtherUser(interaction.user, interaction)
+            if not vortex_user:
+                await interaction.followup.send(
+                    "Для использования этой команды необходимо связать свой Steam аккаунт. Используйте команду /link",
+                    ephemeral=True
+                )
+                return
+                
+            steam_id = vortex_user['steamId']
+            
+            can_update = await track_manager.can_update_track(steam_id)
+            if not can_update:
+                time_until_next = await track_manager.get_time_until_next_update(steam_id)
+                embed = discord.Embed(color=EMBED_COLOR)
+                embed.description = (
+                    f"### ⏳ Период ожидания\n\n"
+                    f"Вы сможете обновить свой трек через **{time_until_next}**.\n\n"
+                    f"Обновление треков доступно раз в 14 дней."
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
             ytmusic = YTMusic()
             query_text = str(self.query)
 
@@ -229,46 +262,33 @@ class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
                             return
                             
                         title, artist = track_info
-                        
-                        vortex_user = await tryGetOtherUser(interaction.user, interaction)
-                        if not vortex_user:
-                            await interaction.followup.send(
-                                "Для использования этой команды необходимо связать свой Steam аккаунт. Используйте команду /link",
-                                ephemeral=True
-                            )
-                            return
-                            
-                        steam_id = vortex_user['steamId']
                         track_url = f"https://www.youtube.com/watch?v={video_id}"
-                        
                         track_title = f"{title}" if not artist else f"{title} - {artist}"
                         cleaned_title = TrackUtils.clean_track_name(track_title)
-                        
                         thumbnail_url = await TrackUtils.get_youtube_thumbnail(track_url)
-                        
-                        if not await music_converter.add_to_queue(steam_id, track_url, cleaned_title):
-                            await interaction.followup.send(
-                                "Произошла ошибка при добавлении трека в очередь. Пожалуйста, попробуйте позже.",
-                                ephemeral=True
-                            )
-                            return
                         
                         track_data = {
                             "soundname": cleaned_title,
                             "path": "",
-                            "url": track_url,
-                            "timestamp": discord.utils.utcnow().isoformat()
+                            "url": track_url
                         }
                         
-                        if not await music_converter.save_track_data(steam_id, track_data):
+                        if not await track_manager.update_track(steam_id, track_data):
                             await interaction.followup.send(
-                                "Произошла ошибка при сохранении данных. Пожалуйста, попробуйте позже.",
+                                "Произошла ошибка при обновлении трека. Пожалуйста, попробуйте позже.",
+                                ephemeral=True
+                            )
+                            return
+                        
+                        if not await music_converter.add_to_queue(steam_id, track_url, cleaned_title, track_data):
+                            await interaction.followup.send(
+                                "Трек установлен, но произошла ошибка при добавлении в очередь конвертации. Попробуйте позже.",
                                 ephemeral=True
                             )
                             return
                         
                         confirm_embed = TrackUtils.create_track_embed(
-                            title="✨ Трек появится в новом сезоне!",
+                            title="✨ Трек успешно установлен!",
                             track_name=cleaned_title,
                             thumbnail_url=thumbnail_url
                         )
@@ -277,12 +297,12 @@ class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
                         platform_links = TrackUtils.get_platform_links(cleaned_title)
                         
                         public_embed = discord.Embed(
-                            title="🎵 Трек нового сезона!",
+                            title="🎵 Новый трек!",
                             color=EMBED_COLOR
                         )
                         public_embed.description = (
                             f"**{cleaned_title}**\n\n"
-                            f"Выбрал игрок {interaction.user.mention}\n\n{' • '.join(platform_links)}"
+                            f"Установил игрок {interaction.user.mention}\n\n{' • '.join(platform_links)}"
                         )
                         
                         if thumbnail_url:
@@ -291,7 +311,7 @@ class TrackSearchModal(discord.ui.Modal, title="🎵 Поиск трека"):
                         await interaction.followup.send(embed=confirm_embed, ephemeral=True)
                         await interaction.channel.send(embed=public_embed)
                         
-                        logger.info(f'Added track from YouTube URL for user {steam_id} ({interaction.user.name}): {cleaned_title}')
+                        logger.info(f'Updated track from URL for user {steam_id} ({interaction.user.name}): {cleaned_title}')
                         return
                     
                     video_details = track_info['videoDetails']

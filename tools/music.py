@@ -12,16 +12,17 @@ from pedalboard import Pedalboard, Limiter, Gain
 from pathlib import Path
 from math import log10
 from typing import Optional, Dict, Any, List, Tuple, TypedDict
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote
 from transliterate import translit
 from ytmusicapi import YTMusic
 from html import unescape
 
 import settings
-from lib.vortex_api import GetPlayerTrack, PlayerMusic
+from lib.vortex_api import GetPlayerTrack, PlayerMusic, DeletePlayerTrack, UpdatePlayerTrack, DeleteAndCreatePlayerTrack
+from lib.steam_api import GetPlayerSummaries
 
-logger = settings.logging.getLogger("discord")
+logger = settings.logging.getLogger("music")
 
 
 class MusicPlatform:
@@ -146,31 +147,116 @@ class TrackUtils:
         
         return cleaned
 
+    @staticmethod
+    def format_time_delta(delta_seconds: int) -> str:
+        """Форматирует оставшееся время в читаемую строку"""
+        days, remainder = divmod(delta_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        if days > 0:
+            return f"{days}д {hours}ч {minutes}м"
+        elif hours > 0:
+            return f"{hours}ч {minutes}м"
+        else:
+            return f"{minutes}м {seconds}с"
+            
+    @staticmethod
+    def has_music_role(member: discord.Member) -> bool:
+        """Проверяет, имеет ли пользователь хотя бы одну роль, дающую право на музыку"""
+        if 'music_roles_ids' not in settings.Preferences:
+            music_roles = [
+                settings.Preferences.get('legend_role_id'),
+                settings.Preferences.get('moder_role_id'), 
+                settings.Preferences.get('govnovoz_role_id')
+            ]
+        else:
+            music_roles = settings.Preferences.get('music_roles_ids', [])
+        
+        member_role_ids = {role.id for role in member.roles}
+        return any(role_id in member_role_ids for role_id in music_roles if role_id)
 
-class NextSeasonTrackManager:
+
+class TrackManager:
     def __init__(self):
         self.tracks_file = 'preferences/tracks.json'
+        self.update_interval_days = 14
         
-    async def can_set_track(self) -> bool:
-        now = datetime.utcnow()
-        return 0 <= now.day
-        
-    async def get_next_season_track(self, steam_id: str) -> Optional[Dict[str, Any]]:
+    async def can_update_track(self, steam_id: str) -> bool:
+        """Проверяет, может ли пользователь обновить трек (прошло ли 14 дней)"""
+        if not os.path.exists(self.tracks_file):
+            return True
+            
+        try:
+            with open(self.tracks_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if steam_id not in data:
+                    return True
+                    
+                last_update = data[steam_id].get('timestamp')
+                if not last_update:
+                    return True
+                    
+                last_update_date = datetime.fromisoformat(last_update)
+                time_passed = datetime.now() - last_update_date
+                
+                return time_passed.days >= self.update_interval_days
+        except Exception as e:
+            logger.error(f"Error checking update availability: {str(e)}")
+            return True
+            
+    async def get_time_until_next_update(self, steam_id: str) -> Optional[str]:
+        """Возвращает время до следующего возможного обновления"""
         if not os.path.exists(self.tracks_file):
             return None
             
         try:
             with open(self.tracks_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                return data.get(steam_id)
-        except (json.JSONDecodeError, FileNotFoundError):
+                if steam_id not in data:
+                    return None
+                    
+                last_update = data[steam_id].get('timestamp')
+                if not last_update:
+                    return None
+                    
+                last_update_date = datetime.fromisoformat(last_update)
+                next_update_date = last_update_date + timedelta(days=self.update_interval_days)
+                time_remaining = next_update_date - datetime.now()
+                
+                if time_remaining.total_seconds() <= 0:
+                    return None
+                    
+                return TrackUtils.format_time_delta(int(time_remaining.total_seconds()))
+        except Exception as e:
+            logger.error(f"Error calculating time until next update: {str(e)}")
+            return None
+    
+    async def get_current_track(self, steam_id: str) -> Optional[PlayerMusic]:
+        """Получает текущий трек пользователя из API"""
+        try:
+            return await GetPlayerTrack(steam_id)
+        except Exception as e:
+            logger.error(f"Error getting current track: {str(e)}")
             return None
             
-    async def set_next_season_track(self, steam_id: str, track_data: Dict[str, Any]) -> bool:
-        if not await self.can_set_track():
+    async def update_track(self, steam_id: str, track_data: Dict[str, Any]) -> bool:
+        """Обновляет трек пользователя в локальном файле и подготавливает данные"""
+        if not await self.can_update_track(steam_id):
             return False
             
         try:
+            player_nickname = "Unknown Player"
+            try:
+                player_summary = await GetPlayerSummaries(steam_id)
+                if player_summary and "personaname" in player_summary:
+                    player_nickname = player_summary["personaname"]
+                    logger.info(f'Retrieved Steam nickname for {steam_id}: {player_nickname}')
+                else:
+                    logger.warning(f'Could not get nickname for {steam_id} - player summary missing or incomplete')
+            except Exception as e:
+                logger.warning(f'Error retrieving Steam nickname for {steam_id}: {str(e)}')
+            
             os.makedirs(os.path.dirname(self.tracks_file), exist_ok=True)
             
             data = {}
@@ -187,23 +273,121 @@ class NextSeasonTrackManager:
                 "soundname": track_data["soundname"],
                 "path": track_data.get("path", ""),
                 "url": track_data["url"],
+                "timestamp": datetime.utcnow().isoformat(),
                 "timestamp": datetime.utcnow().isoformat()
             }
             
             with open(self.tracks_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
+            
+            track_data["nick"] = player_nickname
                 
             return True
         except Exception as e:
-            logger.error(f"Error saving next season track: {str(e)}")
+            logger.error(f"Error updating track in local file: {str(e)}")
             return False
             
-    async def get_current_track(self, steam_id: str) -> Optional[PlayerMusic]:
+    async def commit_track_to_api(self, steam_id: str, track_data: Dict[str, Any]) -> bool:
+        """Загружает трек в API после обработки файла"""
         try:
-            return await GetPlayerTrack(steam_id)
+            api_track_data = {
+                "soundname": track_data["soundname"],
+                "path": track_data.get("path", ""),
+                "url": track_data["url"],
+                "nick": track_data.get("nick", "Unknown Player")
+            }
+            
+            try:
+                await DeletePlayerTrack(steam_id)
+                logger.info(f'Successfully deleted old track for {steam_id}')
+            except Exception as e:
+                logger.info(f'Track deletion failed for {steam_id}, likely new track: {str(e)}')
+                
+            await UpdatePlayerTrack(steam_id, api_track_data)
+            logger.info(f'Successfully uploaded track for {steam_id} to API with reset playcount')
+            
+            return True
         except Exception as e:
-            logger.error(f"Error getting current track: {str(e)}")
-            return None
+            logger.error(f"Error uploading track to API: {str(e)}")
+            return False
+            
+    async def compare_and_restore_track(self, steam_id: str) -> None:
+        """Сравнивает треки в API и файле tracks.json и восстанавливает при необходимости"""
+        try:
+            api_track = None
+            
+            try:
+                api_track = await self.get_current_track(steam_id)
+                logger.info(f'Found track in API for {steam_id}')
+            except Exception as e:
+                logger.info(f'No track in API for {steam_id}: {str(e)}')
+            
+            if not os.path.exists(self.tracks_file):
+                logger.info(f'Tracks file does not exist')
+                return
+            
+            file_track = None
+            try:
+                with open(self.tracks_file, 'r', encoding='utf-8') as f:
+                    tracks_data = json.load(f)
+                    if steam_id in tracks_data:
+                        file_track = tracks_data[steam_id]
+                        logger.info(f'Found track in file for {steam_id}')
+                    else:
+                        logger.info(f'No track in file for {steam_id}')
+            except Exception as e:
+                logger.error(f'Error reading tracks file: {str(e)}')
+                return
+            
+            if not file_track:
+                logger.info(f'No track data found in file for {steam_id}')
+                return
+            
+            player_nickname = "Unknown Player"
+            try:
+                player_summary = await GetPlayerSummaries(steam_id)
+                if player_summary and "personaname" in player_summary:
+                    player_nickname = player_summary["personaname"]
+                    logger.info(f'Retrieved Steam nickname for {steam_id}: {player_nickname}')
+                else:
+                    logger.warning(f'Could not get nickname for {steam_id} - player summary missing or incomplete')
+            except Exception as e:
+                logger.warning(f'Error retrieving Steam nickname for {steam_id}: {str(e)}')
+            
+            if not api_track and file_track:
+                logger.info(f'Restoring track for {steam_id} from file to API')
+                track_data = {
+                    "soundname": file_track["soundname"],
+                    "path": file_track.get("path", ""),
+                    "url": file_track.get("url", ""),
+                    "nick": player_nickname
+                }
+                
+                await UpdatePlayerTrack(steam_id, track_data)
+                logger.info(f'Successfully restored track for {steam_id} from file to API with nickname: {player_nickname}')
+                return
+            
+            if api_track and file_track:
+                api_soundname = api_track.get('soundname', '')
+                file_soundname = file_track.get('soundname', '')
+                
+                if api_soundname != file_soundname:
+                    logger.info(f'Tracks differ for {steam_id}, updating API from file')
+                    track_data = {
+                        "soundname": file_track["soundname"],
+                        "path": file_track.get("path", ""),
+                        "url": file_track.get("url", ""),
+                        "nick": player_nickname
+                    }
+                    
+                    await DeletePlayerTrack(steam_id)
+                    await UpdatePlayerTrack(steam_id, track_data)
+                    logger.info(f'Successfully updated track for {steam_id} from file to API with nickname: {player_nickname}')
+                else:
+                    logger.info(f'Tracks are identical for {steam_id}, no update needed')
+        
+        except Exception as e:
+            logger.error(f'Error in compare_and_restore_track: {str(e)}')
 
 
 class MusicConverter:
@@ -277,14 +461,20 @@ class MusicConverter:
                     task = await self.conversion_queue.get()
                     self.processing = True
                     
-                    steam_id, url, title = task
+                    steam_id, url, title, track_data = task
                     success, file_path = await self.process_track(url, title)
                     
                     if success:
                         logger.info(f"Successfully converted track for {steam_id}: {title}")
+                        
                         await self.update_track_path(steam_id, file_path)
+                        
+                        track_data["path"] = file_path
+                        
+                        await track_manager.commit_track_to_api(steam_id, track_data)
                     else:
                         logger.error(f"Failed to convert track for {steam_id}: {title}")
+                        await track_manager.commit_track_to_api(steam_id, track_data)
                     
                     self.processing = False
                     self.conversion_queue.task_done()
@@ -440,9 +630,9 @@ class MusicConverter:
             logger.error(f"Error updating track path: {str(e)}")
             return False
 
-    async def add_to_queue(self, steam_id: str, url: str, title: str) -> bool:
+    async def add_to_queue(self, steam_id: str, url: str, title: str, track_data: Dict[str, Any]) -> bool:
         try:
-            await self.conversion_queue.put((steam_id, url, title))
+            await self.conversion_queue.put((steam_id, url, title, track_data))
             return True
         except Exception as e:
             logger.error(f"Error adding track to queue: {str(e)}")
@@ -601,4 +791,4 @@ def load_role_ids():
         return {}
 
 music_converter = MusicConverter()
-track_manager = NextSeasonTrackManager()
+track_manager = TrackManager()

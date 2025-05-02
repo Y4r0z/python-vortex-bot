@@ -294,6 +294,7 @@ class PlayerMusicInput(TypedDict):
     soundname: str
     path: str
     url: str | None
+    nick: str | None
 
 async def GetPlayerTrack(steam_id: str) -> PlayerMusic:
     """Получает информацию о треке пользователя"""
@@ -310,3 +311,11 @@ async def GetTopTracks(limit: int = 10) -> List[PlayerMusic]:
 async def DeletePlayerTrack(steam_id: str) -> StatusCode:
     """Удаляет трек пользователя"""
     return await _Delete(f'{host}/music/track/{steam_id}')
+
+async def DeleteAndCreatePlayerTrack(steam_id: str, track_data: PlayerMusicInput) -> PlayerMusic:
+    """Удаляет существующий трек и создает новый для сброса счетчика воспроизведений"""
+    try:
+        await DeletePlayerTrack(steam_id)
+    except Exception:
+        pass
+    return await UpdatePlayerTrack(steam_id, track_data)
