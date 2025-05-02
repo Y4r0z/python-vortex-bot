@@ -1,24 +1,19 @@
 import discord
 import settings
 import asyncio
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord import app_commands
 from tools.ds import checkAdmin, syncAllRoles, tryGetUser
 import lib.vortex_api as Vortex
-from typing import Dict, Optional
+from tools.music import TrackUtils, track_manager
 
-# Используем специальный логгер для синхронизации
 logger = settings.logging.getLogger('discord.sync')
 
 
 class SyncCommand(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot   
-        self.privilege_sync_task.start()
         super().__init__()
-    
-    def cog_unload(self):
-        self.privilege_sync_task.cancel()
     
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
@@ -26,39 +21,27 @@ class SyncCommand(commands.Cog):
         logger.info(f"New member joined: {member.id} ({member.name})")
         
         try:
-            # Проверяем, привязан ли аккаунт Discord к Steam
             try:
                 discord_user = await Vortex.GetDiscordUser(member.id)
                 if discord_user:
                     steam_id = discord_user["user"]["steamId"]
                     
-                    # Выдаем роль привязанного аккаунта
                     if 'linked_role_id' in settings.Preferences:
                         linked_role_id = settings.Preferences['linked_role_id']
                         await member.add_roles(discord.Object(id=linked_role_id))
                         logger.info(f"Added linked role to new member {member.id} ({member.name})")
                     
-                    # Синхронизируем привилегии
                     await self.sync_member_privileges(member, steam_id)
                     logger.info(f"Synchronized privileges for new member {member.id} ({member.name})")
+                    
+                    if TrackUtils.has_music_role(member):
+                        logger.info(f"New member {member.id} ({member.name}) has music role, checking track")
+                        await track_manager.compare_and_restore_track(steam_id)
             except Exception as e:
                 logger.debug(f"New member {member.id} not linked: {str(e)}")
         
         except Exception as e:
             logger.error(f"Error syncing privileges for new member {member.id} ({member.name}): {str(e)}")
-        
-    @tasks.loop(hours=12)
-    async def privilege_sync_task(self):
-        try:
-            logger.info("Starting scheduled privilege sync for all users")
-            await self.sync_all_users_privileges()
-            logger.info("Completed scheduled privilege sync for all users")
-        except Exception as e:
-            logger.error(f"Error in scheduled privilege sync: {str(e)}")
-    
-    @privilege_sync_task.before_loop
-    async def before_privilege_sync(self):
-        await self.bot.wait_until_ready()
 
     async def sync_member_privileges(self, member: discord.Member, steam_id: str) -> int:
         try:
@@ -66,7 +49,6 @@ class SyncCommand(commands.Cog):
             member_role_ids = [role.id for role in member.roles]
             changes_made = 0
             
-            # Проверяем наличие роли привязанного аккаунта
             if 'linked_role_id' in settings.Preferences:
                 linked_role_id = settings.Preferences['linked_role_id']
                 if linked_role_id not in member_role_ids:
@@ -144,17 +126,18 @@ class SyncCommand(commands.Cog):
                             
                         steam_id = discord_user["user"]["steamId"]
                         
-                        # Проверяем наличие роли привязанного аккаунта
                         linked_role_id = settings.Preferences.get('linked_role_id')
                         if linked_role_id and linked_role_id not in [role.id for role in member.roles]:
-                            # Если привязка существует, но роли нет - добавляем роль
                             await member.add_roles(discord.Object(id=linked_role_id))
                             logger.info(f"Added linked role to {member.id} ({member.name}) - Steam linked but role missing")
                             sync_count += 1
                         
-                        # Двусторонняя синхронизация
                         changes1 = await self.sync_member_privileges(member, steam_id)
                         await syncAllRoles(member)
+                        
+                        if TrackUtils.has_music_role(member):
+                            logger.info(f"Member {member.id} ({member.name}) has music role, checking track")
+                            await track_manager.compare_and_restore_track(steam_id)
                         
                         if changes1 > 0:
                             sync_count += 1
@@ -186,14 +169,15 @@ class SyncCommand(commands.Cog):
                 await interaction.followup.send('Вы выполнили команду не на сервере!', ephemeral=True)
                 return
 
-            # Двусторонняя синхронизация
             steam_id = user_data["steamId"]
             
-            # Привилегии сервера -> Discord роли
             await self.sync_member_privileges(member, steam_id)
             
-            # Discord роли -> привилегии сервера
             await syncAllRoles(member)
+            
+            if TrackUtils.has_music_role(member):
+                logger.info(f"Member {member.id} ({member.name}) has music role, checking track")
+                await track_manager.compare_and_restore_track(steam_id)
             
             try:
                 if (role := settings.Preferences['linked_role_id']) not in [i.id for i in member.roles]:
@@ -221,15 +205,17 @@ class SyncCommand(commands.Cog):
                 await interaction.followup.send('У вас недостаточно прав для выполнения этой команды.', ephemeral=True)
                 return
 
-            # Проверяем, привязан ли пользователь
             try:
                 discord_user = await Vortex.GetDiscordUser(member.id)
                 if discord_user:
                     steam_id = discord_user["user"]["steamId"]
                     
-                    # Двусторонняя синхронизация
                     await self.sync_member_privileges(member, steam_id)
                     await syncAllRoles(member)
+                    
+                    if TrackUtils.has_music_role(member):
+                        logger.info(f"Member {member.id} ({member.name}) has music role, checking track during syncuser")
+                        await track_manager.compare_and_restore_track(steam_id)
             except Exception as e:
                 logger.debug(f'User not linked: {str(e)}')
                 await syncAllRoles(member)
