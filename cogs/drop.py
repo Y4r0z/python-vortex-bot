@@ -29,11 +29,10 @@ class DropCommand(commands.Cog):
         super().__init__()
 
     @app_commands.command(name='drop', description='Бесплатно выдает коины')
-    async def drop(self, interaction: discord.Interaction) -> None:  # переименовал из balance в drop
+    async def drop(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         logger.info(f'Drop command called by {interaction.user.id} ({interaction.user.name})')
         
-        # Получаем текущее время в UTC
         current_utc = datetime.datetime.now(timezone.utc)
         current_naive = current_utc.replace(tzinfo=None)
         
@@ -45,26 +44,20 @@ class DropCommand(commands.Cog):
             return
             
         try:
-            # Получаем данные о дропе
             drop = await Vortex.GetMoneyDrop(user['steamId'])
             logger.info(f'Drop API response: {drop}')
             
             value = drop['value']
             next_drop_str = drop['nextDrop']
             
-            # Парсим время следующего дропа (оно приходит без временной зоны)
             next_drop = datetime.datetime.fromisoformat(next_drop_str)
             
-            # Логируем время для отладки
             logger.info(f'Next drop time: {next_drop.isoformat()}')
             logger.info(f'Time until next drop: {(next_drop - current_naive).total_seconds()} seconds')
             
-            # Получаем timestamp для Discord timestamp formatting
-            # Добавляем UTC для корректного timestamp
             next_drop_utc = next_drop.replace(tzinfo=timezone.utc)
             next_drop_timestamp = int(next_drop_utc.timestamp())
             
-            # Проверяем, можно ли получить награду
             if value == 0:
                 if current_naive < next_drop:
                     await interaction.followup.send(
@@ -72,7 +65,6 @@ class DropCommand(commands.Cog):
                         ephemeral=True
                     )
                 else:
-                    # Если время прошло, но value = 0, возможно нужно обновить состояние
                     logger.warning(f'Drop time passed but value is 0. User: {user["steamId"]}, Next drop: {next_drop_str}')
                     await interaction.followup.send(
                         'Пожалуйста, подождите несколько секунд и попробуйте снова.',
@@ -80,7 +72,6 @@ class DropCommand(commands.Cog):
                     )
                 return
             
-            # Если есть награда для получения
             channel: discord.TextChannel = settings.Get('bot_output_channel_id', None, self.bot.get_channel)
             view = ShareView(
                 f'Игроку {interaction.user.mention} выпало {formatCoins(value)} в `/drop`',

@@ -16,24 +16,17 @@ class LinkedRolesCommand(commands.Cog):
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         """Обработчик события обновления участника (в том числе удаления ролей)"""
         try:
-            # Проверяем, есть ли словарь связанных ролей
             if 'linked_roles' not in settings.Preferences:
                 return
                 
-            # Находим роли, которые были удалены
             removed_roles = set(before.roles) - set(after.roles)
             
-            # Проверяем каждую удаленную роль
             for role in removed_roles:
                 role_id = str(role.id)
-                # Если удаленная роль была основной в связке
                 if role_id in settings.Preferences['linked_roles']:
-                    # Получаем ID связанной роли
                     linked_role_id = settings.Preferences['linked_roles'][role_id]
-                    # Находим объект связанной роли
                     linked_role = after.guild.get_role(linked_role_id)
                     if linked_role and linked_role in after.roles:
-                        # Удаляем связанную роль
                         await after.remove_roles(linked_role)
                         logger.info(
                             f'Removed linked role {linked_role.id} from user {after.id} '
@@ -59,11 +52,9 @@ class LinkedRolesCommand(commands.Cog):
         )
 
         try:
-            # Проверка на права администратора
             if not (await checkAdmin(interaction)):
                 return
 
-            # Создаем view для настройки
             view = LinkedRolesView()
             
             await interaction.followup.send(
@@ -98,15 +89,12 @@ class LinkedRolesCommand(commands.Cog):
         )
 
         try:
-            # Проверка на права администратора
             if not (await checkAdmin(interaction)):
                 return
 
-            # Проверяем существование словаря связанных ролей
             if 'linked_roles' not in settings.Preferences:
                 settings.Preferences['linked_roles'] = {}
 
-            # Удаляем связь ролей
             role_id = str(primary_role.id)
             if role_id in settings.Preferences['linked_roles']:
                 del settings.Preferences['linked_roles'][role_id]

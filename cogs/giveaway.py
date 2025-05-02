@@ -159,7 +159,6 @@ class GiveawayCommand(commands.Cog):
             if (user := await tryGetUser(interaction)) is None:
                 return
 
-            # Проверка существующих раздач
             history = await Vortex.GetGiveaways(user['steamId'])
             if len(history) > 0:
                 first = history[0]
@@ -175,7 +174,6 @@ class GiveawayCommand(commands.Cog):
                 )
                 return
 
-            # Валидация параметров
             if reward <= 0:
                 await interaction.followup.send('Слишком маленькая награда', ephemeral=True)
                 return
@@ -186,7 +184,6 @@ class GiveawayCommand(commands.Cog):
                 await interaction.followup.send('Слишком маленькая длительность раздачи', ephemeral=True)
                 return
 
-            # Создание раздачи
             giveaway = await Vortex.CreateGiveaway(user['steamId'], useCount, reward, minutes)
 
             if len(giveaway.keys()) == 1:

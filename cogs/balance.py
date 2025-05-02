@@ -74,27 +74,23 @@ class BalanceCommand(commands.Cog):
         logger.info(f'Balance command called by {interaction.user.id} ({interaction.user.name})')
         
         try:
-            # Получаем данные пользователя
             user = await tryGetUser(interaction)
             if user is None:
                 return
                 
             steam_id = user['steamId']
             
-            # Пробуем получить баланс из кэша
             cached_balance = await self.balance_cache.get(steam_id)
             if cached_balance is not None:
                 logger.info(f'Using cached balance for {steam_id}')
                 balance_value = cached_balance
             else:
-                # Получаем актуальный баланс
                 try:
                     balance = await _retry_api_call(
                         lambda: Vortex.GetBalance(steam_id)
                     )
                     balance_value = balance["value"]
                     
-                    # Сохраняем в кэш
                     await self.balance_cache.set(steam_id, balance_value)
                     
                 except Exception as e:
@@ -105,14 +101,11 @@ class BalanceCommand(commands.Cog):
                     )
                     return
             
-            # Форматируем сообщение
             formatted_balance = formatCoins(balance_value)
             share_message = f'Баланс игрока {interaction.user.mention}: **{formatted_balance}**'
             
-            # Создаем view для кнопки поделиться
             view = ShareView(share_message)
             
-            # Отправляем ответ
             await interaction.followup.send(
                 content=f'Ваш баланс: {formatted_balance}',
                 ephemeral=True,

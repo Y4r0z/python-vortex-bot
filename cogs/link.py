@@ -29,8 +29,6 @@ class LinkCommand(commands.Cog):
                     await interaction.followup.send('Вы уже привязали свой аккаунт', ephemeral=True)
                     return
             except Exception as e:
-                # Здесь мы ожидаем ошибку, если пользователь не найден,
-                # поэтому продолжаем выполнение
                 logger.debug(f'Expected error checking user link status: {str(e)}')
                 pass
 
