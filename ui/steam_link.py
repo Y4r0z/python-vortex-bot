@@ -25,6 +25,21 @@ class AcceptLinkView(discord.ui.View):
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message('Вы выполнили команду не на сервере!', ephemeral=True)
             return
+            
+        try:
+            existing_link = await GetDiscordUserSteam(self.steam['steamid'])
+            if existing_link:
+                await interaction.response.edit_message(
+                    view=None, 
+                    embed=embedFromSteam(
+                        self.steam, 
+                        f'Этот Steam-аккаунт уже привязан к другому Discord-аккаунту.'
+                    )
+                )
+                return
+        except Exception:
+            pass
+            
         link = await LinkUser(steam_id=self.steam['steamid'], discord_id=interaction.user.id)
         await interaction.user.add_roles(discord.Object(id=settings.Preferences['linked_role_id']))
         await syncAllRoles(interaction.user)
@@ -44,23 +59,40 @@ class LinkModal(discord.ui.Modal, title='Интеграция со Steam'):
         placeholder='https://steamcommunity.com/profiles/76561198163385515/')
     
     async def on_submit(self, interaction: discord.Interaction):
+        steam_id = ""
+        summary = None
+        
         try:
-            summary = await GetPlayerSummaries(self.steamid.value)
-        except:
-            path = urllib.parse.urlparse(self.steamid.value).path
-            vanity = list(filter(lambda x: x!='', path.split('/')))[-1]
-            steamid = await ResolveVanityURL(vanity)
-            summary = await GetPlayerSummaries(steamid)
-        try:
-            await GetDiscordUserSteam(self.steamid.value)
-            await interaction.response.send_message('Это пользователь уже связал свой аккаунт! 👀', ephemeral=True)
-            return
-        except:
-            pass
-        view = AcceptLinkView(steam=summary)
-        await interaction.response.send_message(view=view, embed=embedFromSteam(summary, 'Подтвердите, что это ваш аккаунт'), ephemeral=True)
+            try:
+                summary = await GetPlayerSummaries(self.steamid.value)
+                steam_id = summary['steamid']
+            except:
+                path = urllib.parse.urlparse(self.steamid.value).path
+                vanity = list(filter(lambda x: x!='', path.split('/')))[-1]
+                steam_id = await ResolveVanityURL(vanity)
+                summary = await GetPlayerSummaries(steam_id)
+                
+            try:
+                existing_link = await GetDiscordUserSteam(steam_id)
+                if existing_link:
+                    await interaction.response.send_message(
+                        f'Этот Steam-аккаунт уже привязан к другому Discord-аккаунту.',
+                        ephemeral=True
+                    )
+                    return
+            except Exception:
+                pass
+                
+            view = AcceptLinkView(steam=summary)
+            await interaction.response.send_message(
+                view=view, 
+                embed=embedFromSteam(summary, 'Подтвердите, что это ваш аккаунт'), 
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message('Игрок с данным Steam ID не найден!', ephemeral=True)
 
-    async def on_error(self, interaction: discord.Interaction, error): #type: ignore
+    async def on_error(self, interaction: discord.Interaction, error): 
         await interaction.response.send_message('Игрок с данным Steam ID не найден!', ephemeral=True)
 
 class LinkView(discord.ui.View):
@@ -74,4 +106,3 @@ class LinkView(discord.ui.View):
             pass
         link_modal = LinkModal()
         await interaction.response.send_modal(link_modal)
-    
