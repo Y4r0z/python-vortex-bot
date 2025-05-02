@@ -30,14 +30,12 @@ RolesLiteral = Literal['vip_role_id', 'premium_role_id', 'legend_role_id', 'mode
 ChannelsLiteral = Literal['bot_output_channel_id']
 PreferencesLiteral = Literal['vip_role_id', 'premium_role_id', 'legend_role_id', 'moder_role_id', 'linked_role_id', 'bot_output_channel_id']
 
-# API Timeouts and Retry Configuration
-API_TIMEOUT = 30  # seconds
+API_TIMEOUT = 30  
 API_RETRY_ATTEMPTS = 3
-API_RETRY_DELAY = 1  # seconds
+API_RETRY_DELAY = 1  
 
 load_dotenv()
 
-# Environment variables with type hints и проверками
 DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN", "")
 STEAM_TOKEN: str = os.getenv("STEAM_TOKEN", "")
 VORTEX_TOKEN: str = os.getenv("VORTEX_TOKEN", "")
@@ -45,25 +43,21 @@ VORTEX_HOST: str = os.getenv("VORTEX_HOST", "")
 GUILD_ID: str = os.getenv("GUILD_ID", "")
 Preferences: PreferencesStructure = {}  # type: ignore
 
-# Проверка обязательных переменных окружения
 assert DISCORD_TOKEN, 'Не указан токен Discord - DISCORD_TOKEN'
 assert STEAM_TOKEN, 'Не указан ключ Steam API - STEAM_TOKEN'
 assert VORTEX_TOKEN, 'Не указан токен Vortex API - VORTEX_TOKEN'
 assert VORTEX_HOST, 'Не указан адрес сервера Vortex API - VORTEX_HOST'
 assert GUILD_ID, 'Не указан токен сервера - GUILD_ID'
 
-# Настройка путей
 BASE_DIR = pathlib.Path(__file__).parent
 COGS_DIR = BASE_DIR / "cogs"
 
-# Инициализация директорий
 preferences_dir = 'preferences'
 preferences_file = 'ids.json'
 path = os.path.join(preferences_dir, preferences_file)
 pathlib.Path(preferences_dir).mkdir(parents=True, exist_ok=True)
 pathlib.Path('./logs').mkdir(parents=True, exist_ok=True)
 
-# Загрузка настроек
 if pathlib.Path(path).is_file():
     try:
         with open(path, 'r') as f:
@@ -72,13 +66,11 @@ if pathlib.Path(path).is_file():
         logging.getLogger('discord').error(f'Ошибка при чтении настроек: {str(e)}')
         Preferences = {}
 
-# Механизм сохранения настроек с защитой от race condition
 _save_lock = threading.Lock()
 _last_save_time = 0
-_save_delay = 1  # Минимальная задержка между сохранениями в секундах
+_save_delay = 1  
 
 def SavePreferences() -> None:
-    """Сохраняет настройки в файл с защитой от race condition и ограничением частоты сохранений"""
     global _last_save_time
     
     if len(Preferences.items()) == 0:
@@ -86,17 +78,14 @@ def SavePreferences() -> None:
         
     current_time = time.time()
     with _save_lock:
-        # Проверяем, прошло ли достаточно времени с последнего сохранения
         if current_time - _last_save_time < _save_delay:
             time.sleep(_save_delay - (current_time - _last_save_time))
             
         try:
-            # Создаем временный файл для безопасного сохранения
             temp_path = f"{path}.tmp"
             with open(temp_path, 'w') as f:
                 json.dump(Preferences, f, indent=2)
             
-            # Атомарно заменяем старый файл новым
             os.replace(temp_path, path)
             _last_save_time = time.time()
         except Exception as e:
@@ -130,22 +119,10 @@ def Get(
     defaultValue: Optional[T] = None,
     processor: Callable[[int], T] = __defaultProcessor,
 ) -> Optional[T]:
-    """
-    Получает значение настройки с возможностью обработки и значением по умолчанию
-    
-    Args:
-        setting_name: Имя настройки
-        defaultValue: Значение по умолчанию
-        processor: Функция для обработки значения
-    
-    Returns:
-        Обработанное значение настройки или значение по умолчанию
-    """
     if setting_name in Preferences.keys() and Preferences[setting_name] is not None:
         return processor(Preferences[setting_name])
     return defaultValue
 
-# Конфигурация логирования
 LOGGING_CONFIG = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -175,10 +152,24 @@ LOGGING_CONFIG = {
             "formatter": "verbose",
             "mode": "w"
         },
+        "tasks_file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": "logs/tasks.log",
+            "formatter": "verbose",
+            "mode": "w"
+        },
         "sync_file": {
             "level": "INFO",
             "class": "logging.FileHandler",
             "filename": "logs/sync.log",
+            "formatter": "verbose",
+            "mode": "w"
+        },
+        "music_file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": "logs/music.log",
             "formatter": "verbose",
             "mode": "w"
         }
@@ -194,8 +185,18 @@ LOGGING_CONFIG = {
             "level": "INFO",
             "propagate": False
         },
-        "discord.sync": {
+        "tasks": {
+            "handlers": ['console2', 'tasks_file'],
+            "level": "INFO",
+            "propagate": False
+        },
+        "sync": {
             "handlers": ['console2', 'sync_file'],
+            "level": "INFO",
+            "propagate": False
+        },
+        "music": {
+            "handlers": ['console', 'music_file'],
             "level": "INFO",
             "propagate": False
         }
