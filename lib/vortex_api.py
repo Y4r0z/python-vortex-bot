@@ -5,7 +5,6 @@ from typing import TypedDict, List, Union
 from lib.steam_api import PlayerSummary
 
 
-
 host = settings.VORTEX_HOST
 token = settings.VORTEX_TOKEN
 headers = {'Authorization': f'Bearer {token}'}
@@ -126,6 +125,21 @@ class Rank(TypedDict):
     rank: int
     score: int
 
+class GameStatistics(TypedDict):
+    id: int
+    user: User
+    last_nickname: str
+    last_online: str
+    last_ip: str
+    last_country: str
+    last_city: str
+    last_region: str
+
+class PlaytimeInfo(TypedDict):
+    steam_id: str
+    total_seconds: int
+    total_hours: int
+
 
 class UserAlreadyBannedError(Exception):
     ...
@@ -186,7 +200,7 @@ async def _Delete(href: str, supressErrors = False):
 
 
 async def FindSteamUser(steam_id: str) -> List[User]:
-    return await _Get(f'{host}/user/search?query={steam_id}')
+    return await _Get(f'{host}/player/search?query={steam_id}')
 
 async def LinkUser(steam_id: str, discord_id: str | int) -> SteamLink:
     return await _Post(f'{host}/discord?steam_id={steam_id}&discord_id={discord_id}')
@@ -198,13 +212,13 @@ async def GetDiscordUserSteam(steam_id: str) -> SteamLink:
     return await _Get(f'{host}/discord/steam?steam_id={steam_id}')
 
 async def SetUserPrivilege(steam_id: str, privilege_id: int):
-    return await _Post(f'{host}/privilege?steam_id={steam_id}&privilege_id={privilege_id}&until={BoostyPrivilegeUntil}')
+    return await _Post(f'{host}/player/{steam_id}/privileges?privilege_id={privilege_id}&until={BoostyPrivilegeUntil}')
         
 async def GetUserPrivileges(steam_id: str) -> List[PrivilegeStatus]:
-    return await _Get(f'{host}/privilege/all?steam_id={steam_id}')
+    return await _Get(f'{host}/player/{steam_id}/privileges/all')
 
 async def DeleteUserPrivilege(steam_id: str, privilege: PrivilegeStatus):
-    return await _Delete(f'{host}/privilege?id={privilege["id"]}')
+    return await _Delete(f'{host}/player/privileges/{privilege["id"]}')
 
 async def GetBalance(steam_id: str) -> Balance:
     return await _Get(f'{host}/balance?steam_id={steam_id}') 
@@ -216,17 +230,12 @@ async def PayBalance(source_id: str, target_id: str, value: int) -> DuplexTransa
     return await _Post(f'{host}/balance/pay?source_steam_id={source_id}&target_steam_id={target_id}&value={value}')
 
 async def GetPrivilegeSet(steam_id: str) -> PrivilegeSet:
-    return await _Get(f'{host}/privilege?steam_id={steam_id}')
+    return await _Get(f'{host}/player/{steam_id}/privileges')
 
 async def GetMoneyDrop(steam_id: str) -> MoneyDrop:
     return await _Get(f'{host}/balance/drop?steam_id={steam_id}')
 
 async def CreateGiveaway(steam_id: str, useCount: int, reward: int, minutes: int) -> Giveaway:
-    """
-    @param useCount: сколько раз можно забрать награду
-    @param reward : количество коинов в качестве награды
-    @param minutes: сколько минут длится раздача
-    """
     payload = {
         'useCount': useCount,
         'reward': reward,
@@ -266,7 +275,13 @@ async def GetPlayerRank(steam_id: str) -> Rank:
     return await _Get(f'{host}/score/top/rank?steam_id={steam_id}')
 
 async def GetBulkProfile(steam_id: str) -> BulkProfileInfo:
-    return await _Get(f'{host}/profile/bulk?steam_id={steam_id}&cached=False')
+    return await _Get(f'{host}/player/{steam_id}/profile?cached=False')
+
+async def GetBaseStatistics(steam_id: str) -> GameStatistics:
+    return await _Get(f'{host}/statistics/base?steam_id={steam_id}')
+
+async def GetPlaytime(steam_id: str) -> PlaytimeInfo:
+    return await _Get(f'{host}/score/session/playtime?steam_id={steam_id}')
 
 
 async def SbBanPlayer(steam_id: str, duration: int, reason: str):
@@ -297,23 +312,18 @@ class PlayerMusicInput(TypedDict):
     nick: str | None
 
 async def GetPlayerTrack(steam_id: str) -> PlayerMusic:
-    """Получает информацию о треке пользователя"""
     return await _Get(f'{host}/music/track/{steam_id}')
 
 async def UpdatePlayerTrack(steam_id: str, track_data: PlayerMusicInput) -> PlayerMusic:
-    """Обновляет или создает трек пользователя"""
     return await _Put(f'{host}/music/track/{steam_id}', data=track_data)
 
 async def GetTopTracks(limit: int = 10) -> List[PlayerMusic]:
-    """Получает список самых популярных треков"""
     return await _Get(f'{host}/music/top?limit={limit}')
 
 async def DeletePlayerTrack(steam_id: str) -> StatusCode:
-    """Удаляет трек пользователя"""
     return await _Delete(f'{host}/music/track/{steam_id}')
 
 async def DeleteAndCreatePlayerTrack(steam_id: str, track_data: PlayerMusicInput) -> PlayerMusic:
-    """Удаляет существующий трек и создает новый для сброса счетчика воспроизведений"""
     try:
         await DeletePlayerTrack(steam_id)
     except Exception:

@@ -10,10 +10,16 @@ from typing import Optional, Dict, Any, List
 
 logger = settings.logging.getLogger('discord')
 
-def GetProfileEmbed(info: Vortex.BulkProfileInfo) -> discord.Embed:
-    """Создает Discord Embed с информацией о профиле игрока."""
+def GetProfileEmbed(info: Vortex.BulkProfileInfo, playtime: Optional[Vortex.PlaytimeInfo] = None) -> discord.Embed:
     try:
         rank = info['rank'] if info['rank'] is not None else 'Отсутствует'
+        
+        playtime_str = ''
+        if playtime:
+            hours = playtime['total_hours']
+            playtime_str = f'\nВремя игры: {hours:,} ч.'
+        
+        description = f'Ранг: {rank}{playtime_str}\nБаланс: {formatCoins(info["balance"])}\nSteam ID: {info["steamInfo"]["steamid"]}'
         perks = \
 f"""
 **Перки выжившего**:
@@ -39,7 +45,7 @@ f"""
         embed = discord.Embed(
             color=discord.Color.dark_teal(),
             title='Информация об игроке',
-            description=f'Ранг: {rank}\nБаланс: {formatCoins(info["balance"])}\nSteam ID: {info["steamInfo"]["steamid"]}',
+            description=description,
         )
         embed.set_author(
             name=info['steamInfo']['personaname'],
@@ -53,12 +59,45 @@ f"""
         logger.error(f"Error creating profile embed: {str(e)}")
         raise
 
+def GetStatisticsEmbed(stats: Vortex.GameStatistics, steam_info: dict) -> discord.Embed:
+    try:
+        last_online = 'Неизвестно'
+        if stats['last_online']:
+            try:
+                dt = datetime.datetime.fromisoformat(stats['last_online'].replace('Z', '+00:00'))
+                last_online = dt.strftime('%d.%m.%y - %H:%M')
+            except:
+                last_online = stats['last_online']
+        
+        location = []
+        if stats['last_country']: location.append(stats['last_country'])
+        if stats['last_region']: location.append(stats['last_region'])
+        if stats['last_city']: location.append(stats['last_city'])
+        location_str = ', '.join(location) if location else 'Неизвестно'
+        
+        embed = discord.Embed(
+            color=discord.Color.orange(),
+            title='Последняя статистика',
+            description=f'Последний ник: {stats["last_nickname"] or "Неизвестно"}\nОнлайн в: {last_online}'
+        )
+        embed.set_author(
+            name=steam_info['personaname'],
+            url=steam_info['profileurl'],
+            icon_url=steam_info['avatarmedium']
+        )
+        embed.add_field(name='Местоположение', value=location_str, inline=False)
+        embed.add_field(name='Последний IP', value=stats["last_ip"] or 'Неизвестно', inline=False)
+        
+        return embed
+    except Exception as e:
+        logger.error(f"Error creating statistics embed: {str(e)}")
+        raise
+
 def logToStr(log: Vortex.ChatLog, 
             bsteam_id: bool = False, 
             btime: bool = False, 
             bserver: bool = False, 
             bteam: bool = False) -> str:
-    """Форматирует лог чата в строку с заданными параметрами отображения."""
     try:
         team_map = {
             3: 'зар.',
@@ -81,6 +120,54 @@ def logToStr(log: Vortex.ChatLog,
     except Exception as e:
         logger.error(f"Error formatting chat log: {str(e)}")
         raise
+
+class ProfileView(discord.ui.View):
+    def __init__(self, vortex_embed: discord.Embed, gamer_embed: discord.Embed, share_text: str):
+        super().__init__(timeout=300)
+        self.vortex_embed = vortex_embed
+        self.gamer_embed = gamer_embed
+        self.share_text = share_text
+        self.current_page = 'vortex'
+        self._update_button_styles()
+    
+    def _update_button_styles(self):
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                if item.label == 'Vortex':
+                    item.style = discord.ButtonStyle.primary if self.current_page == 'vortex' else discord.ButtonStyle.secondary
+                elif item.label == 'Gamer':
+                    item.style = discord.ButtonStyle.primary if self.current_page == 'gamer' else discord.ButtonStyle.secondary
+    
+    @discord.ui.button(label='Vortex', style=discord.ButtonStyle.primary)
+    async def vortex_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            self.current_page = 'vortex'
+            self._update_button_styles()
+            await interaction.response.edit_message(embed=self.vortex_embed, view=self)
+        except Exception as e:
+            logger.error(f'Error switching to Vortex page: {str(e)}')
+    
+    @discord.ui.button(label='Gamer', style=discord.ButtonStyle.secondary)
+    async def gamer_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            self.current_page = 'gamer'
+            self._update_button_styles()
+            await interaction.response.edit_message(embed=self.gamer_embed, view=self)
+        except Exception as e:
+            logger.error(f'Error switching to Gamer page: {str(e)}')
+    
+    @discord.ui.button(label='Поделиться', style=discord.ButtonStyle.success)
+    async def share(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            current_embed = self.vortex_embed if self.current_page == 'vortex' else self.gamer_embed
+            await interaction.channel.send(self.share_text, embed=current_embed)
+            await interaction.response.edit_message(view=None)
+        except Exception as e:
+            logger.error(f'Error in share button: {str(e)}')
+            await interaction.response.send_message(
+                'Произошла ошибка при отправке сообщения',
+                ephemeral=True
+            )
 
 class ModerCommands(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -179,10 +266,38 @@ class ModerCommands(commands.Cog):
                     return
                 steam_id = vortex_user['steamId']
 
-            info = await Vortex.GetBulkProfile(steam_id or '')
-            embed = GetProfileEmbed(info)
-            view = ShareView(f'{interaction.user.mention} поделился информацией об игроке:', embed=embed)
-            await interaction.followup.send(embed=embed, ephemeral=True, view=view)
+            target_steam_id = steam_id or ''
+            
+            vortex_info = await Vortex.GetBulkProfile(target_steam_id)
+            
+            playtime_info = None
+            try:
+                playtime_info = await Vortex.GetPlaytime(target_steam_id)
+            except Exception as e:
+                logger.warning(f'Failed to get playtime for {target_steam_id}: {str(e)}')
+            
+            vortex_embed = GetProfileEmbed(vortex_info, playtime_info)
+            
+            try:
+                gamer_stats = await Vortex.GetBaseStatistics(target_steam_id)
+                gamer_embed = GetStatisticsEmbed(gamer_stats, vortex_info['steamInfo'])
+            except Exception as e:
+                logger.warning(f'Failed to get statistics for {target_steam_id}: {str(e)}')
+                gamer_embed = discord.Embed(
+                    color=discord.Color.red(),
+                    title='Игровая статистика',
+                    description='Статистика недоступна'
+                )
+                gamer_embed.set_author(
+                    name=vortex_info['steamInfo']['personaname'],
+                    url=vortex_info['steamInfo']['profileurl'],
+                    icon_url=vortex_info['steamInfo']['avatarmedium']
+                )
+            
+            share_text = f'{interaction.user.mention} поделился информацией об игроке:'
+            view = ProfileView(vortex_embed, gamer_embed, share_text)
+            
+            await interaction.followup.send(embed=vortex_embed, ephemeral=True, view=view)
 
         except Exception as ex:
             logger.error(f'Error in getinfo command: {str(ex)}')

@@ -5,7 +5,6 @@ from discord.ext import commands
 from discord import app_commands
 from tools.ds import checkAdmin, syncAllRoles, tryGetUser
 import lib.vortex_api as Vortex
-from tools.music import TrackUtils, track_manager
 
 logger = settings.logging.getLogger('discord.sync')
 
@@ -34,9 +33,6 @@ class SyncCommand(commands.Cog):
                     await self.sync_member_privileges(member, steam_id)
                     logger.info(f"Synchronized privileges for new member {member.id} ({member.name})")
                     
-                    if TrackUtils.has_music_role(member):
-                        logger.info(f"New member {member.id} ({member.name}) has music role, checking track")
-                        await track_manager.compare_and_restore_track(steam_id)
             except Exception as e:
                 logger.debug(f"New member {member.id} not linked: {str(e)}")
         
@@ -135,10 +131,6 @@ class SyncCommand(commands.Cog):
                         changes1 = await self.sync_member_privileges(member, steam_id)
                         await syncAllRoles(member)
                         
-                        if TrackUtils.has_music_role(member):
-                            logger.info(f"Member {member.id} ({member.name}) has music role, checking track")
-                            await track_manager.compare_and_restore_track(steam_id)
-                        
                         if changes1 > 0:
                             sync_count += 1
                             
@@ -175,10 +167,6 @@ class SyncCommand(commands.Cog):
             
             await syncAllRoles(member)
             
-            if TrackUtils.has_music_role(member):
-                logger.info(f"Member {member.id} ({member.name}) has music role, checking track")
-                await track_manager.compare_and_restore_track(steam_id)
-            
             try:
                 if (role := settings.Preferences['linked_role_id']) not in [i.id for i in member.roles]:
                     await member.add_roles(discord.Object(id=role))
@@ -212,10 +200,7 @@ class SyncCommand(commands.Cog):
                     
                     await self.sync_member_privileges(member, steam_id)
                     await syncAllRoles(member)
-                    
-                    if TrackUtils.has_music_role(member):
-                        logger.info(f"Member {member.id} ({member.name}) has music role, checking track during syncuser")
-                        await track_manager.compare_and_restore_track(steam_id)
+
             except Exception as e:
                 logger.debug(f'User not linked: {str(e)}')
                 await syncAllRoles(member)
