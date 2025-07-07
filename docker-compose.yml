@@ -8,6 +8,7 @@ services:
     env_file:
       - .env
     volumes:
+      - /root/.ssh:/root/.ssh:ro
       - ./logs:/app/logs:z
       - ./preferences:/app/preferences:z
       - ./temp:/app/temp:z

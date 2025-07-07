@@ -41,13 +41,24 @@ STEAM_TOKEN: str = os.getenv("STEAM_TOKEN", "")
 VORTEX_TOKEN: str = os.getenv("VORTEX_TOKEN", "")
 VORTEX_HOST: str = os.getenv("VORTEX_HOST", "")
 GUILD_ID: str = os.getenv("GUILD_ID", "")
-Preferences: PreferencesStructure = {}  # type: ignore
+
+FASTDL_MODE: str = os.getenv("FASTDL_MODE", "local")
+FASTDL_SSH_HOST: str = os.getenv("FASTDL_SSH_HOST", "185.130.249.201")
+FASTDL_SSH_PORT: int = int(os.getenv("FASTDL_SSH_PORT", "1337"))
+FASTDL_SSH_USER: str = os.getenv("FASTDL_SSH_USER", "root")
+FASTDL_REMOTE_PATH: str = os.getenv("FASTDL_REMOTE_PATH", "/var/www/html/fastdl/sound/ui")
+
+Preferences: PreferencesStructure = {}
 
 assert DISCORD_TOKEN, 'Не указан токен Discord - DISCORD_TOKEN'
 assert STEAM_TOKEN, 'Не указан ключ Steam API - STEAM_TOKEN'
 assert VORTEX_TOKEN, 'Не указан токен Vortex API - VORTEX_TOKEN'
 assert VORTEX_HOST, 'Не указан адрес сервера Vortex API - VORTEX_HOST'
 assert GUILD_ID, 'Не указан токен сервера - GUILD_ID'
+
+if FASTDL_MODE == "remote":
+    assert FASTDL_SSH_HOST, 'Не указан SSH хост для fastdl - FASTDL_SSH_HOST'
+    assert FASTDL_SSH_USER, 'Не указан SSH пользователь для fastdl - FASTDL_SSH_USER'
 
 BASE_DIR = pathlib.Path(__file__).parent
 COGS_DIR = BASE_DIR / "cogs"
@@ -92,24 +103,19 @@ def SavePreferences() -> None:
             logging.getLogger('discord').error(f'Ошибка при сохранении настроек: {str(e)}')
 
 def IsSetUp() -> bool:
-    """Проверяет наличие основных настроек"""
     return all(i in Preferences.keys() for i in [
         'vip_role_id', 'premium_role_id', 'legend_role_id', 'linked_role_id'])
 
 def IsCommandsSetUp() -> bool:
-    """Проверяет наличие настроек команд"""
     return all(i in Preferences.keys() for i in ['moder_role_id'])
 
 def IsChannelsSetUp() -> bool:
-    """Проверяет наличие настроек каналов"""
     return all(i in Preferences.keys() for i in ['bot_output_channel_id'])
 
 def IsRoleExists(role_name: RolesLiteral) -> bool:
-    """Проверяет существование роли"""
     return role_name in Preferences.keys() and Preferences[role_name] is not None
 
 def IsChannelExists(channel_name: ChannelsLiteral) -> bool:
-    """Проверяет существование канала"""
     return channel_name in Preferences.keys() and Preferences[channel_name] is not None
 
 __defaultProcessor = lambda x: int(x)

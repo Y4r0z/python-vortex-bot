@@ -8,6 +8,7 @@ import yt_dlp
 import asyncio
 import aiohttp
 import discord
+import asyncssh
 from pedalboard import Pedalboard, Limiter, Gain
 from pathlib import Path
 from math import log10
@@ -149,7 +150,6 @@ class TrackUtils:
 
     @staticmethod
     def format_time_delta(delta_seconds: int) -> str:
-        """Форматирует оставшееся время в читаемую строку"""
         days, remainder = divmod(delta_seconds, 86400)
         hours, remainder = divmod(remainder, 3600)
         minutes, seconds = divmod(remainder, 60)
@@ -163,7 +163,6 @@ class TrackUtils:
             
     @staticmethod
     def has_music_role(member: discord.Member) -> bool:
-        """Проверяет, имеет ли пользователь хотя бы одну роль, дающую право на музыку"""
         if 'music_roles_ids' not in settings.Preferences:
             music_roles = [
                 settings.Preferences.get('legend_role_id'),
@@ -183,7 +182,6 @@ class TrackManager:
         self.update_interval_days = 14
         
     async def can_update_track(self, steam_id: str) -> bool:
-        """Проверяет, может ли пользователь обновить трек (прошло ли 14 дней)"""
         if not os.path.exists(self.tracks_file):
             return True
             
@@ -206,7 +204,6 @@ class TrackManager:
             return True
             
     async def get_time_until_next_update(self, steam_id: str) -> Optional[str]:
-        """Возвращает время до следующего возможного обновления"""
         if not os.path.exists(self.tracks_file):
             return None
             
@@ -233,7 +230,6 @@ class TrackManager:
             return None
     
     async def get_current_track(self, steam_id: str) -> Optional[PlayerMusic]:
-        """Получает текущий трек пользователя из API"""
         try:
             return await GetPlayerTrack(steam_id)
         except Exception as e:
@@ -241,7 +237,6 @@ class TrackManager:
             return None
             
     async def update_track(self, steam_id: str, track_data: Dict[str, Any]) -> bool:
-        """Обновляет трек пользователя в локальном файле и подготавливает данные"""
         if not await self.can_update_track(steam_id):
             return False
             
@@ -288,7 +283,6 @@ class TrackManager:
             return False
             
     async def commit_track_to_api(self, steam_id: str, track_data: Dict[str, Any]) -> bool:
-        """Загружает трек в API после обработки файла"""
         try:
             api_track_data = {
                 "soundname": track_data["soundname"],
@@ -312,7 +306,6 @@ class TrackManager:
             return False
             
     async def compare_and_restore_track(self, steam_id: str) -> None:
-        """Сравнивает треки в API и файле tracks.json и восстанавливает при необходимости"""
         try:
             api_track = None
             
@@ -390,16 +383,50 @@ class TrackManager:
             logger.error(f'Error in compare_and_restore_track: {str(e)}')
 
 
+class SSHUploader:
+    def __init__(self):
+        self.host = settings.FASTDL_SSH_HOST
+        self.port = settings.FASTDL_SSH_PORT
+        self.user = settings.FASTDL_SSH_USER
+        self.remote_path = settings.FASTDL_REMOTE_PATH
+
+    async def upload_file(self, local_file_path: str, filename: str) -> bool:
+        try:
+            async with asyncssh.connect(
+                self.host,
+                port=self.port,
+                username=self.user,
+                known_hosts=None
+            ) as conn:
+                remote_file_path = f"{self.remote_path}/{filename}"
+                
+                await conn.run(f'mkdir -p {self.remote_path}')
+                
+                async with conn.start_sftp_client() as sftp:
+                    await sftp.put(local_file_path, remote_file_path)
+                
+                logger.info(f'Successfully uploaded {filename} to {self.host}:{remote_file_path}')
+                return True
+                
+        except Exception as e:
+            logger.error(f'Error uploading file via SSH: {str(e)}')
+            return False
+
+
 class MusicConverter:
     def __init__(self):
         self.conversion_queue = asyncio.Queue()
         self.processing = False
         self.base_path = Path("/app")
         self.temp_folder = self.base_path / "temp"
-        self.output_folder = Path("/var/www/html/fastdl/sound/ui")
         self.tracks_file = self.base_path / "preferences" / "tracks.json"
         
-        self.output_folder.mkdir(parents=True, exist_ok=True)
+        if settings.FASTDL_MODE == "local":
+            self.output_folder = Path("/var/www/html/fastdl/sound/ui")
+            self.output_folder.mkdir(parents=True, exist_ok=True)
+        else:
+            self.ssh_uploader = SSHUploader()
+        
         self.temp_folder.mkdir(parents=True, exist_ok=True)
         
         self.ydl_opts = {
@@ -491,29 +518,33 @@ class MusicConverter:
             if not url or not title:
                 return False, "Invalid input"
             
-            if not self.output_folder.exists():
-                logger.info(f"Creating output folder: {self.output_folder}")
-                self.output_folder.mkdir(parents=True, exist_ok=True)
-            
-            logger.info(f"Checking permissions for folder: {self.output_folder}")
-            if not os.access(str(self.output_folder), os.W_OK):
-                logger.error(f"No write permission to output folder: {self.output_folder}")
-                logger.debug(f"Folder permissions: {oct(os.stat(str(self.output_folder)).st_mode)}")
-                logger.debug(f"Current user/group: {os.getuid()}:{os.getgid()}")
-                return False, "Permission denied"
-        
             output_filename = self.clean_filename(title)
-            output_path = self.output_folder / output_filename
-        
-            logger.info(f"Testing file creation: {output_path}")
-            try:
-                with open(output_path, 'a'): pass
-                os.unlink(output_path)
-                logger.info("File creation test successful")
-            except IOError as e:
-                logger.error(f"Cannot write to output file {output_path}: {e}")
-                logger.debug(f"Parent folder permissions: {oct(os.stat(str(output_path.parent)).st_mode)}")
-                return False, f"Permission denied: {str(e)}"
+            
+            if settings.FASTDL_MODE == "local":
+                if not self.output_folder.exists():
+                    logger.info(f"Creating output folder: {self.output_folder}")
+                    self.output_folder.mkdir(parents=True, exist_ok=True)
+                
+                logger.info(f"Checking permissions for folder: {self.output_folder}")
+                if not os.access(str(self.output_folder), os.W_OK):
+                    logger.error(f"No write permission to output folder: {self.output_folder}")
+                    logger.debug(f"Folder permissions: {oct(os.stat(str(self.output_folder)).st_mode)}")
+                    logger.debug(f"Current user/group: {os.getuid()}:{os.getgid()}")
+                    return False, "Permission denied"
+            
+                output_path = self.output_folder / output_filename
+            
+                logger.info(f"Testing file creation: {output_path}")
+                try:
+                    with open(output_path, 'a'): pass
+                    os.unlink(output_path)
+                    logger.info("File creation test successful")
+                except IOError as e:
+                    logger.error(f"Cannot write to output file {output_path}: {e}")
+                    logger.debug(f"Parent folder permissions: {oct(os.stat(str(output_path.parent)).st_mode)}")
+                    return False, f"Permission denied: {str(e)}"
+            else:
+                output_path = self.temp_folder / output_filename
         
             downloaded_file = await self.download_track(url)
         
@@ -526,6 +557,14 @@ class MusicConverter:
                 return False, "File too large"
 
             await self.process_audio(str(downloaded_file), str(output_path))
+            
+            if settings.FASTDL_MODE == "remote":
+                upload_success = await self.ssh_uploader.upload_file(str(output_path), output_filename)
+                output_path.unlink(missing_ok=True)
+                
+                if not upload_success:
+                    downloaded_file.unlink(missing_ok=True)
+                    return False, "SSH upload failed"
         
             downloaded_file.unlink(missing_ok=True)
             return True, f"ui/{output_filename}"

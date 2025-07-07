@@ -329,3 +329,13 @@ async def DeleteAndCreatePlayerTrack(steam_id: str, track_data: PlayerMusicInput
     except Exception:
         pass
     return await UpdatePlayerTrack(steam_id, track_data)
+
+class PlayerRating(TypedDict):
+    shooting_skills: dict
+    game_efficiency: dict
+    combat_effectiveness: dict
+    experience_activity: dict
+    total: dict
+
+async def GetPlayerRating(steam_id: str, cached: bool = False) -> PlayerRating:
+    return await _Get(f'{host}/score/rating?steam_id={steam_id}&cached={cached}')

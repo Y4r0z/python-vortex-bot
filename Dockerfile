@@ -16,10 +16,4 @@ RUN python -m pip install -r requirements.txt
 WORKDIR /app
 COPY . /app
 
-RUN adduser -u 5678 --disabled-password --gecos "" appuser && \
-    usermod -a -G www-data appuser && \
-    chown -R appuser:www-data /app
-    
-USER appuser
-
 CMD ["python", "main.py"]
